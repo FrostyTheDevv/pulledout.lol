@@ -44,8 +44,7 @@ scan_status = {}
 
 # Ensure reports directory exists
 REPORTS_DIR = 'reports'
-if not os.path.exists(REPORTS_DIR):
-    os.makedirs(REPORTS_DIR)
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
 # Authentication decorator
 def login_required(f):
