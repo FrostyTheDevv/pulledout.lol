@@ -10,6 +10,11 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 db = SQLAlchemy()
 
@@ -114,11 +119,19 @@ def init_database(app):
     with app.app_context():
         try:
             db.create_all()
+            logger.info("Database initialized successfully")
+            logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI'][:50]}...")
+            
+            # Log user count for debugging
+            user_count = User.query.count()
+            logger.info(f"Users in database: {user_count}")
+            
             print("[OK] Database initialized successfully")
         except Exception as e:
             # Tables may already exist from previous deployments
             error_msg = str(e)
             if "already exists" in error_msg or "duplicate key" in error_msg:
+                logger.info("Using existing database schema")
                 print("[OK] Using existing database schema")
             else:
                 print(f"[!] Database initialization warning: {e}")
@@ -131,23 +144,30 @@ class UserManager:
     @staticmethod
     def create_user(username: str, password: str) -> Dict:
         """Create new user account with secure password hashing"""
+        logger.info(f"Attempting to create user: {username}")
+        
         # Validate username
         if not username or len(username) < 3 or len(username) > 30:
+            logger.warning(f"User creation failed - invalid username length: {username}")
             return {'success': False, 'error': 'Username must be 3-30 characters'}
         
         if not username.replace('_', '').replace('-', '').isalnum():
+            logger.warning(f"User creation failed - invalid username characters: {username}")
             return {'success': False, 'error': 'Username can only contain letters, numbers, - and _'}
         
         # Validate password
         if not password or len(password) < 8:
+            logger.warning(f"User creation failed - password too short for user: {username}")
             return {'success': False, 'error': 'Password must be at least 8 characters'}
         
         if len(password) > 128:
+            logger.warning(f"User creation failed - password too long for user: {username}")
             return {'success': False, 'error': 'Password too long (max 128 characters)'}
         
         try:
             # Check if username exists
             if User.query.filter_by(username=username).first():
+                logger.warning(f"User creation failed - username exists: {username}")
                 return {'success': False, 'error': 'Username already exists'}
             
             # Create user
@@ -157,6 +177,7 @@ class UserManager:
             db.session.add(user)
             db.session.commit()
             
+            logger.info(f"User created successfully: {username} (ID: {user.id})")
             return {'success': True, 'user_id': user.id, 'username': username}
             
         except Exception as e:
@@ -167,18 +188,23 @@ class UserManager:
     def authenticate(username: str, password: str) -> Dict:
         """Authenticate user and create session"""
         try:
+            logger.info(f"Authentication attempt for username: {username}")
+            
             # Get user
             user = User.query.filter_by(username=username).first()
             
             if not user:
+                logger.warning(f"Authentication failed - user not found: {username}")
                 return {'success': False, 'error': 'Invalid username or password'}
             
             # Check if account is active
             if not user.is_active:
+                logger.warning(f"Authentication failed - account disabled: {username}")
                 return {'success': False, 'error': 'Account is disabled'}
             
             # Verify password
             if not user.check_password(password):
+                logger.warning(f"Authentication failed - invalid password for user: {username}")
                 return {'success': False, 'error': 'Invalid username or password'}
             
             # Create session token
@@ -198,6 +224,7 @@ class UserManager:
             
             db.session.commit()
             
+            logger.info(f"Authentication successful for user: {username}")
             return {
                 'success': True,
                 'user_id': user.id,
@@ -208,6 +235,7 @@ class UserManager:
             
         except Exception as e:
             db.session.rollback()
+            logger.error(f"Authentication error for user {username}: {str(e)}", exc_info=True)
             return {'success': False, 'error': f'Authentication error: {str(e)}'}
     
     @staticmethod

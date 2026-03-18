@@ -10,6 +10,7 @@ import threading
 import uuid
 import json
 import os
+import logging
 from datetime import datetime
 from core.scanner import SecurityScanner
 from core.report_generator import generate_html_report
@@ -17,6 +18,13 @@ from database import db, init_database, UserManager, ScanManager
 from functools import wraps
 from dotenv import load_dotenv
 from typing import Optional
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -177,12 +185,16 @@ def signup():
     username = data.get('username', '').strip()
     password = data.get('password', '')
     
+    logger.info(f"Signup attempt from IP: {request.remote_addr}, Username: {username}")
+    
     if not username or not password:
+        logger.warning(f"Signup failed - missing credentials from {request.remote_addr}")
         return jsonify({'error': 'Username and password required'}), 400
     
     result = UserManager.create_user(username, password)
     
     if result['success']:
+        logger.info(f"Signup successful for user: {username}")
         return jsonify({
             'success': True,
             'message': 'Account created successfully',
@@ -190,6 +202,7 @@ def signup():
             'username': result['username']
         })
     else:
+        logger.warning(f"Signup failed for user {username}: {result['error']}")
         return jsonify({'error': result['error']}), 400
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -199,12 +212,16 @@ def login():
     username = data.get('username', '').strip()
     password = data.get('password', '')
     
+    logger.info(f"Login attempt from IP: {request.remote_addr}, Username: {username}")
+    
     if not username or not password:
+        logger.warning(f"Login failed - missing credentials from {request.remote_addr}")
         return jsonify({'error': 'Username and password required'}), 400
     
     result = UserManager.authenticate(username, password)
     
     if result['success']:
+        logger.info(f"Login successful for user: {username}")
         return jsonify({
             'success': True,
             'message': 'Login successful',
@@ -213,6 +230,7 @@ def login():
             'expires_at': result['expires_at']
         })
     else:
+        logger.warning(f"Login failed for user {username}: {result['error']}")
         return jsonify({'error': result['error']}), 401
 
 @app.route('/api/auth/logout', methods=['POST'])
