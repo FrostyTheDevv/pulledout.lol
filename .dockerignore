@@ -1,0 +1,27 @@
+# Ignore development files
+.git
+.gitignore
+.vscode
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+.venv
+venv
+ENV
+env
+
+# Ignore local development
+.env
+*.db
+instance/
+
+# Ignore reports  
+reports/
+
+# Ignore documentation
+README.md
