@@ -37,6 +37,8 @@ env/
 # Generated reports
 *.html
 !examples/*.html
+!templates/*.html
+!static/**/*.html
 
 # Logs
 *.log
