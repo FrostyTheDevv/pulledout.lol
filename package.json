@@ -1,0 +1,22 @@
+{
+  "name": "sawsap",
+  "version": "1.0.0",
+  "description": "SawSap - State of the Art Web Security Analysis Platform",
+  "scripts": {
+    "dev": ".venv\\Scripts\\python launch_dashboard.py",
+    "start": ".venv\\Scripts\\python launch_dashboard.py",
+    "server": ".venv\\Scripts\\python web_server.py",
+    "scan": ".venv\\Scripts\\python main.py",
+    "install": "pip install -r requirements.txt"
+  },
+  "keywords": [
+    "security",
+    "scanner",
+    "web-security",
+    "vulnerability-scanner",
+    "cloudflare-bypass",
+    "selenium"
+  ],
+  "author": "SawSap",
+  "license": "MIT"
+}

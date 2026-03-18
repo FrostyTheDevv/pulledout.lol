@@ -1,0 +1,425 @@
+"""
+Web Security Scanner - Flask Web Interface
+Professional web-based security scanning platform with authentication
+"""
+
+from flask import Flask, render_template, request, jsonify, send_file, g
+from flask_cors import CORS
+import threading
+import uuid
+import json
+import os
+from datetime import datetime
+from core.scanner import SecurityScanner
+from core.report_generator import generate_html_report
+from database import db, init_database, UserManager, ScanManager
+from functools import wraps
+from dotenv import load_dotenv
+from typing import Optional
+
+# Load environment variables from .env file
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app)
+
+# Configuration
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///sawsap.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Fix for Railway PostgreSQL URLs (postgres:// -> postgresql://)
+if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
+    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
+
+# Initialize database
+init_database(app)
+
+# Store scan results in memory (use database for production)
+scan_results = {}
+scan_status = {}
+
+# Ensure reports directory exists
+REPORTS_DIR = 'reports'
+if not os.path.exists(REPORTS_DIR):
+    os.makedirs(REPORTS_DIR)
+
+# Authentication decorator
+def login_required(f):
+    """Decorator to require authentication for endpoints"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        session_token = request.headers.get('Authorization')
+        if not session_token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        # Verify session
+        user_info = UserManager.verify_session(session_token)
+        if not user_info:
+            return jsonify({'error': 'Invalid or expired session'}), 401
+        
+        # Attach user info to Flask g object (request context)
+        g.user_id = user_info['user_id']
+        g.username = user_info['username']
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Authentication Routes
+
+@app.route('/api/auth/signup', methods=['POST'])
+def signup():
+    """Create new user account"""
+    data = request.json
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+    
+    result = UserManager.create_user(username, password)
+    
+    if result['success']:
+        return jsonify({
+            'success': True,
+            'message': 'Account created successfully',
+            'user_id': result['user_id'],
+            'username': result['username']
+        })
+    else:
+        return jsonify({'error': result['error']}), 400
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """Authenticate user and create session"""
+    data = request.json
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+    
+    result = UserManager.authenticate(username, password)
+    
+    if result['success']:
+        return jsonify({
+            'success': True,
+            'message': 'Login successful',
+            'session_token': result['session_token'],
+            'username': result['username'],
+            'expires_at': result['expires_at']
+        })
+    else:
+        return jsonify({'error': result['error']}), 401
+
+@app.route('/api/auth/logout', methods=['POST'])
+@login_required
+def logout():
+    """End user session"""
+    session_token = request.headers.get('Authorization')
+    if session_token:
+        UserManager.logout(session_token)
+    return jsonify({'success': True, 'message': 'Logged out successfully'})
+
+@app.route('/api/auth/me', methods=['GET'])
+@login_required
+def get_current_user():
+    """Get current user info"""
+    return jsonify({
+        'user_id': g.user_id,
+        'username': g.username
+    })
+
+@app.route('/api/auth/delete', methods=['DELETE'])
+@login_required
+def delete_account():
+    """Delete user account and all data"""
+    UserManager.delete_account(g.user_id)
+    return jsonify({'success': True, 'message': 'Account deleted'})
+
+
+def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
+    """Background thread to run security scan"""
+    try:
+        scan_status[scan_id] = {
+            'status': 'running',
+            'progress': 0,
+            'message': 'Initializing scan...',
+            'pages_scanned': 0,
+            'total_findings': 0
+        }
+        
+        # Create scanner instance
+        scanner = SecurityScanner(target_url, max_pages=max_pages)
+        
+        # Monkey patch to update progress during scan
+        original_add_finding = scanner.add_finding
+        def tracked_add_finding(*args, **kwargs):
+            result = original_add_finding(*args, **kwargs)
+            scan_status[scan_id]['total_findings'] = len(scanner.findings)
+            return result
+        scanner.add_finding = tracked_add_finding
+        
+        # Update status
+        scan_status[scan_id]['message'] = 'Discovering pages...'
+        scan_status[scan_id]['progress'] = 5
+        
+        # Track pages scanned
+        import functools
+        original_scan = scanner.scan
+        
+        def progress_tracking_scan():
+            # Hook into page scanning
+            from core import page_discovery
+            original_discover = page_discovery.discover_pages
+            
+            def tracked_discover(s):
+                scan_status[scan_id]['message'] = 'Discovering pages to scan...'
+                scan_status[scan_id]['progress'] = 10
+                pages = original_discover(s)
+                scan_status[scan_id]['message'] = f'Found {len(pages)} pages, starting security checks...'
+                scan_status[scan_id]['progress'] = 15
+                return pages
+            
+            page_discovery.discover_pages = tracked_discover
+            
+            # Run the scan
+            results = original_scan()
+            
+            # Restore original
+            page_discovery.discover_pages = original_discover
+            
+            return results
+        
+        scanner.scan = progress_tracking_scan
+        
+        # Run scan
+        scan_status[scan_id]['message'] = 'Running comprehensive security analysis...'
+        scan_status[scan_id]['progress'] = 20
+        results = scanner.scan()
+        
+        # Generate report
+        scan_status[scan_id]['message'] = 'Generating detailed HTML report...'
+        scan_status[scan_id]['progress'] = 90
+        
+        report_path = os.path.join(REPORTS_DIR, f'report_{scan_id}.html')
+        generate_html_report(results, report_path)
+        
+        # Store results
+        results['report_path'] = report_path
+        results['scan_id'] = scan_id
+        scan_results[scan_id] = results
+        
+        # Save to database if user is authenticated
+        if user_id:
+            with app.app_context():
+                ScanManager.save_scan(user_id, results)
+        
+        # Update status
+        scan_status[scan_id] = {
+            'status': 'completed',
+            'progress': 100,
+            'message': f'Scan completed! Found {len(results["findings"])} security issues across {results["pages_scanned"]} pages',
+            'pages_scanned': results['pages_scanned'],
+            'total_findings': len(results['findings'])
+        }
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Scan error for {scan_id}:")
+        print(error_details)
+        scan_status[scan_id] = {
+            'status': 'failed',
+            'progress': 0,
+            'message': f'Scan failed: {str(e)}',
+            'error_details': error_details
+        }
+
+@app.route('/')
+def index():
+    """Main dashboard page"""
+    return render_template('index.html')
+
+@app.route('/login')
+def login_page():
+    """Login page"""
+    return render_template('login.html')
+
+@app.route('/signup')
+def signup_page():
+    """Signup page"""
+    return render_template('signup.html')
+
+@app.route('/terms')
+def terms_page():
+    """Terms of Service page"""
+    return render_template('terms.html')
+
+@app.route('/api/scan', methods=['POST'])
+@login_required
+def start_scan():
+    """Start a new security scan (requires authentication)"""
+    data = request.json
+    target_url = data.get('url')
+    max_pages = data.get('max_pages', 10)
+    
+    if not target_url:
+        return jsonify({'error': 'URL is required'}), 400
+    
+    # Auto-prefix URL if needed
+    if not target_url.startswith(('http://', 'https://')):
+        target_url = 'https://' + target_url
+    
+    # Generate scan ID
+    scan_id = str(uuid.uuid4())
+    
+    # Start scan in background thread (pass user_id for database storage)
+    thread = threading.Thread(
+        target=run_scan_thread, 
+        args=(scan_id, target_url, max_pages, g.user_id)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({
+        'scan_id': scan_id,
+        'message': 'Scan started successfully'
+    })
+
+@app.route('/api/scan/<scan_id>/status', methods=['GET'])
+def get_scan_status(scan_id):
+    """Get status of a scan"""
+    if scan_id not in scan_status:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    return jsonify(scan_status[scan_id])
+
+@app.route('/api/scan/<scan_id>/results', methods=['GET'])
+def get_scan_results(scan_id):
+    """Get results of a completed scan"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Results not found'}), 404
+    
+    results = scan_results[scan_id]
+    
+    # Convert datetime objects to strings for JSON serialization
+    results_copy = results.copy()
+    results_copy['scan_time'] = results['scan_time'].isoformat()
+    
+    # Convert finding timestamps
+    for finding in results_copy['findings']:
+        finding['timestamp'] = finding['timestamp'].isoformat()
+    
+    return jsonify(results_copy)
+
+@app.route('/api/scan/<scan_id>/report', methods=['GET'])
+def download_report(scan_id):
+    """Download HTML report"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    report_path = scan_results[scan_id]['report_path']
+    
+    if not os.path.exists(report_path):
+        return jsonify({'error': 'Report file not found'}), 404
+    
+    return send_file(report_path, as_attachment=True, 
+                    download_name=f'security_report_{scan_id}.html')
+
+@app.route('/api/scans', methods=['GET'])
+@login_required
+def list_user_scans():
+    """List current user's scan history from database"""
+    scans = ScanManager.get_user_scans(g.user_id, limit=50)
+    return jsonify(scans)
+
+@app.route('/api/scans/<scan_id>', methods=['GET'])
+@login_required
+def get_scan_from_history(scan_id):
+    """Get specific scan from user's history"""
+    scan = ScanManager.get_scan_details(scan_id, g.user_id)
+    if not scan:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    # Convert datetime to string
+    if 'scan_time' in scan and hasattr(scan['scan_time'], 'isoformat'):
+        scan['scan_time'] = scan['scan_time'].isoformat()
+    
+    return jsonify(scan)
+
+@app.route('/api/scans/all', methods=['GET'])
+def list_scans():
+    """List all active scans (in-memory, for compatibility)"""
+    scans = []
+    for scan_id, status in scan_status.items():
+        scan_info = {
+            'scan_id': scan_id,
+            'status': status['status'],
+            'progress': status['progress']
+        }
+        
+        if scan_id in scan_results:
+            results = scan_results[scan_id]
+            scan_info['target_url'] = results['target_url']
+            scan_info['risk_score'] = results['risk_score']
+            scan_info['risk_level'] = results['risk_level']
+            scan_info['findings_count'] = len(results['findings'])
+            scan_info['scan_time'] = results['scan_time'].isoformat()
+        
+        scans.append(scan_info)
+    
+    # Sort by most recent first
+    scans.sort(key=lambda x: x.get('scan_time', ''), reverse=True)
+    
+    return jsonify(scans)
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'active_scans': len([s for s in scan_status.values() if s['status'] == 'running'])
+    })
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_ENV', 'development') != 'production'
+    
+    print("""
+===============================================
+    SawSap Security Scanner - Starting    
+===============================================
+    
+    Access the dashboard at:
+    http://localhost:{}
+    
+    Authentication Endpoints:
+    POST   /api/auth/signup       - Create account
+    POST   /api/auth/login        - Login
+    POST   /api/auth/logout       - Logout
+    GET    /api/auth/me           - Get current user
+    DELETE /api/auth/delete       - Delete account
+    
+    Scan Endpoints:
+    POST   /api/scan              - Start new scan (requires auth)
+    GET    /api/scan/<id>/status  - Check scan status
+    GET    /api/scan/<id>/results - Get scan results
+    GET    /api/scan/<id>/report  - Download HTML report
+    GET    /api/scans             - Get user's scan history (requires auth)
+    GET    /api/scans/<id>        - Get specific scan (requires auth)
+    
+    Pages:
+    /                              - Dashboard (requires login)
+    /login                         - Login page
+    /signup                        - Signup page
+    /terms                         - Terms of Service
+    
+    Health:
+    GET    /health                - Health check
+    
+===============================================
+    """.format(port))
+    
+    app.run(debug=debug, host='0.0.0.0', port=port, threaded=True)
