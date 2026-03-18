@@ -5,6 +5,7 @@ Professional web-based security scanning platform with authentication
 
 from flask import Flask, render_template, request, jsonify, send_file, g
 from flask_cors import CORS
+from flask_compress import Compress
 import threading
 import uuid
 import json
@@ -24,7 +25,12 @@ load_dotenv()
 app = Flask(__name__,
             template_folder='templates',
             static_folder='static')
-CORS(app)
+
+# Configure CORS with specific origin (no wildcard)
+CORS(app, origins=['https://pulledout.lol', 'http://localhost:5000', 'http://127.0.0.1:5000'])
+
+# Enable gzip compression for all responses
+Compress(app)
 
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -37,6 +43,101 @@ if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
 
 # Initialize database
 init_database(app)
+
+# Security Headers Middleware - Apply to all responses
+@app.after_request
+def add_security_headers(response):
+    """Add comprehensive security headers to all responses"""
+    
+    # HSTS - Force HTTPS for 1 year, include subdomains, preload eligible
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
+    
+    # Content Security Policy - Comprehensive directives
+    csp_directives = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: https:",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "object-src 'none'",
+        "upgrade-insecure-requests"
+    ]
+    response.headers['Content-Security-Policy'] = '; '.join(csp_directives)
+    
+    # Frame protection
+    response.headers['X-Frame-Options'] = 'DENY'
+    
+    # MIME type sniffing protection
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    
+    # Referrer policy
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Permissions policy (restrict features)
+    permissions = [
+        'geolocation=()',
+        'microphone=()',
+        'camera=()',
+        'payment=()',
+        'usb=()',
+        'bluetooth=()',
+        'accelerometer=()',
+        'gyroscope=()',
+        'magnetometer=()'
+    ]
+    response.headers['Permissions-Policy'] = ', '.join(permissions)
+    
+    # XSS Protection (legacy but still useful)
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    
+    # Cross-Origin policies
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
+    
+    # Additional security headers
+    response.headers['X-Permitted-Cross-Domain-Policies'] = 'none'
+    response.headers['X-Download-Options'] = 'noopen'
+    
+    # Certificate Transparency
+    response.headers['Expect-CT'] = 'max-age=86400, enforce'
+    
+    # Network Error Logging
+    nel_policy = {
+        "report_to": "default",
+        "max_age": 31536000,
+        "include_subdomains": True
+    }
+    response.headers['NEL'] = json.dumps(nel_policy)
+    
+    # Report-To endpoint
+    report_to = [{
+        "group": "default",
+        "max_age": 31536000,
+        "endpoints": [{"url": "https://pulledout.lol/api/reports"}],
+        "include_subdomains": True
+    }]
+    response.headers['Report-To'] = json.dumps(report_to)
+    
+    # Cache control for security
+    if request.path.startswith('/static/'):
+        # Cache static resources for 1 year
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        response.headers['Vary'] = 'Accept-Encoding'
+    else:
+        # Don't cache dynamic pages
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    
+    # Remove server header
+    response.headers.pop('Server', None)
+    
+    return response
 
 # Store scan results in memory (use database for production)
 scan_results = {}
@@ -257,6 +358,21 @@ def signup_page():
 def terms_page():
     """Terms of Service page"""
     return render_template('terms.html')
+
+@app.route('/privacy')
+def privacy_page():
+    """Privacy Policy page"""
+    return render_template('privacy.html')
+
+@app.route('/robots.txt')
+def robots_txt():
+    """Serve robots.txt file"""
+    return send_file('static/robots.txt', mimetype='text/plain')
+
+@app.route('/.well-known/security.txt')
+def security_txt():
+    """Serve security.txt file"""
+    return send_file('static/.well-known/security.txt', mimetype='text/plain')
 
 @app.route('/api/scan', methods=['POST'])
 @login_required

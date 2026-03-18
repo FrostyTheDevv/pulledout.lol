@@ -106,7 +106,7 @@ def discover_from_sitemap(scanner):
     
     for sitemap_url in sitemap_locations:
         try:
-            response = scanner.get_cached_response(sitemap_url)
+            response = scanner.get_cached_response(sitemap_url, silent=True)
             if response and response.status_code == 200:
                 try:
                     root = ET.fromstring(response.content)
@@ -121,7 +121,7 @@ def discover_from_sitemap(scanner):
                         for sitemap_elem in sitemaps[:3]:  # Limit to 3 child sitemaps
                             child_url = sitemap_elem.text
                             try:
-                                child_response = scanner.get_cached_response(child_url)
+                                child_response = scanner.get_cached_response(child_url, silent=True)
                                 if child_response and child_response.status_code == 200:
                                     child_root = ET.fromstring(child_response.content)
                                     locs = child_root.findall('.//ns:url/ns:loc', ns)
@@ -152,7 +152,7 @@ def discover_from_robots(scanner):
     
     try:
         robots_url = f"{scanner.base_url}/robots.txt"
-        response = scanner.get_cached_response(robots_url)
+        response = scanner.get_cached_response(robots_url, silent=True)
         
         if response and response.status_code == 200:
             lines = response.text.split('\n')
@@ -184,7 +184,7 @@ def parse_sitemap_url(scanner, sitemap_url):
     urls = set()
     
     try:
-        response = scanner.get_cached_response(sitemap_url)
+        response = scanner.get_cached_response(sitemap_url, silent=True)
         if response and response.status_code == 200:
             try:
                 root = ET.fromstring(response.content)
@@ -239,42 +239,59 @@ def discover_from_links(scanner, page_url):
 
 
 def discover_common_paths(scanner):
-    """Try common website paths to discover pages"""
+    """Try common website paths to discover pages - organized by category"""
     urls = set()
     
-    common_paths = [
-        '/about', '/about-us', '/about.html',
-        '/contact', '/contact-us', '/contact.html',
-        '/services', '/products',
-        '/blog', '/news', '/articles',
-        '/team', '/careers', '/jobs',
-        '/faq', '/help', '/support',
-        '/privacy', '/terms', '/legal',
-        '/sitemap', '/site-map',
-        '/portfolio', '/work', '/projects',
-        '/pricing', '/plans',
-        '/login', '/signin', '/signup', '/register',
-        '/dashboard', '/account', '/profile'
-    ]
+    # Organized by category for cleaner output
+    path_categories = {
+        'Company Info': ['/about', '/about-us', '/about.html', '/team'],
+        'Contact': ['/contact', '/contact-us', '/contact.html'],
+        'Business': ['/services', '/products', '/pricing', '/plans'],
+        'Content': ['/blog', '/news', '/articles', '/portfolio', '/work', '/projects'],
+        'Support': ['/faq', '/help', '/support'],
+        'Legal': ['/privacy', '/terms', '/legal'],
+        'Careers': ['/careers', '/jobs'],
+        'Navigation': ['/sitemap', '/site-map'],
+        'Authentication': ['/login', '/signin', '/signup', '/register', '/dashboard', '/account', '/profile']
+    }
     
-    for path in common_paths:
-        url = f"{scanner.base_url}{path}"
-        try:
-            # Quick check if page exists (with Selenium fallback)
-            response = scanner.get_cached_response(url)
-            if response and response.status_code == 200:
-                # Check if it's a real page (not a redirect to homepage)
-                if hasattr(response, 'url'):
-                    # Avoid adding if redirected back to homepage
-                    if response.url.rstrip('/') != scanner.target_url.rstrip('/'):
+    print(f"    Checking common paths by category...")
+    total_found = 0
+    
+    for category, paths in path_categories.items():
+        found_in_category = []
+        
+        for path in paths:
+            url = f"{scanner.base_url}{path}"
+            try:
+                # Quick check if page exists (suppress warnings during discovery)
+                response = scanner.get_cached_response(url, silent=True)
+                if response and response.status_code == 200:
+                    # Check if it's a real page (not a redirect to homepage)
+                    if hasattr(response, 'url'):
+                        # Avoid adding if redirected back to homepage
+                        if response.url.rstrip('/') != scanner.target_url.rstrip('/'):
+                            urls.add(url)
+                            found_in_category.append(path)
+                    else:
                         urls.add(url)
-                else:
-                    urls.add(url)
-                
-                # Limit discovery
-                if len(urls) >= 10:
-                    break
-        except:
-            pass
+                        found_in_category.append(path)
+                    
+                    # Limit total discovery
+                    if len(urls) >= 10:
+                        break
+            except:
+                pass
+        
+        # Only print categories where we found pages
+        if found_in_category:
+            print(f"      [{category}] Found: {', '.join(found_in_category)}")
+            total_found += len(found_in_category)
+        
+        if len(urls) >= 10:
+            break
+    
+    if total_found == 0:
+        print(f"      No common paths found")
     
     return list(urls)

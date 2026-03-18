@@ -1,0 +1,12 @@
+# robots.txt for PULLEDOUT.LOL
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /reports/
+Disallow: /admin/
+
+# Sitemap
+Sitemap: https://pulledout.lol/sitemap.xml
+
+# Crawl delay (be respectful)
+Crawl-delay: 1

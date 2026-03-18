@@ -1,0 +1,22 @@
+# security.txt for PULLEDOUT.LOL
+# Our security address
+Contact: mailto:security@pulledout.lol
+Contact: https://pulledout.lol/security
+
+# Preferred language
+Preferred-Languages: en
+
+# Our security page
+Canonical: https://pulledout.lol/.well-known/security.txt
+
+# Encryption key
+# Encryption: https://pulledout.lol/pgp-key.txt
+
+# Security policy
+Policy: https://pulledout.lol/security-policy
+
+# Acknowledgments
+Acknowledgments: https://pulledout.lol/security-thanks
+
+# Expires
+Expires: 2027-03-18T23:59:59.000Z

@@ -114,15 +114,15 @@ def init_database(app):
     with app.app_context():
         try:
             db.create_all()
-            print("[✓] Database initialized successfully")
+            print("[OK] Database initialized successfully")
         except Exception as e:
             # Tables may already exist from previous deployments
             error_msg = str(e)
             if "already exists" in error_msg or "duplicate key" in error_msg:
-                print("[✓] Using existing database schema")
+                print("[OK] Using existing database schema")
             else:
                 print(f"[!] Database initialization warning: {e}")
-                print("[✓] Continuing with existing schema")
+                print("[OK] Continuing with existing schema")
 
 
 class UserManager:

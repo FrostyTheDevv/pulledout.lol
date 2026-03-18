@@ -45,6 +45,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set up logout button
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
     
+    // Set up login button
+    document.getElementById('loginBtn')?.addEventListener('click', function() {
+        window.location.href = '/login';
+    });
+    
     // Load recent scans
     loadRecentScans();
     

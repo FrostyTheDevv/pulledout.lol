@@ -203,8 +203,13 @@ class SecurityScanner:
             safe_print(f"    └─ Selenium error: {str(e)}")
             return None
     
-    def get_cached_response(self, url):
-        """Get cached response or fetch and cache it (with Selenium fallback)"""
+    def get_cached_response(self, url, silent=False):
+        """Get cached response or fetch and cache it (with Selenium fallback)
+        
+        Args:
+            url: URL to fetch
+            silent: If True, suppress warning messages (useful during discovery)
+        """
         if url in self.response_cache:
             return self.response_cache[url]
         
@@ -215,7 +220,8 @@ class SecurityScanner:
                 self.response_cache[url] = response
                 return response
             elif response.status_code == 403:
-                safe_print(f"    └─ HTTP 403 (Cloudflare), trying Selenium...")
+                if not silent:
+                    safe_print(f"    └─ HTTP 403 (Cloudflare), trying Selenium...")
                 # Fall back to Selenium for Cloudflare bypass
                 selenium_response = self._get_page_with_selenium(url)
                 if selenium_response:
@@ -223,7 +229,8 @@ class SecurityScanner:
                     return selenium_response
                 return None
             else:
-                safe_print(f"    └─ Warning: HTTP {response.status_code} for {url}")
+                if not silent:
+                    safe_print(f"    └─ Warning: HTTP {response.status_code} for {url}")
                 return None
         except requests.exceptions.SSLError:
             # Try without SSL verification

@@ -2,24 +2,31 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="PULLEDOUT.LOL - Advanced web security analysis platform. Scan websites for vulnerabilities, security headers, SSL/TLS configuration, and more.">
+    <link rel="canonical" href="https://pulledout.lol/">
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='pulledout.png') }}">
-    <title>SawSap - State of the Art Web Security Analysis Platform</title>
+    <title>PULLEDOUT.LOL - Advanced Web Security Analysis Platform</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
 </head>
 <body>
     <div class="container">
         <!-- Header -->
         <header class="header">
             <div class="header-content">
-                <h1 class="logo">SawSap</h1>
-                <p class="tagline">State of the Art Web Security Analysis Platform</p>
+                <h1 class="logo">PULLEDOUT.LOL</h1>
+                <p class="tagline">Advanced Web Security Analysis Platform</p>
             </div>
             <div class="user-menu">
                 <span id="userGreeting" class="hidden">Welcome, <strong id="usernameDisplay"></strong></span>
                 <button id="logoutBtn" class="btn-logout hidden">Logout</button>
-                <button id="loginBtn" class="btn-login" onclick="window.location.href='/login'">Login</button>
+                <button id="loginBtn" class="btn-login">Login</button>
             </div>
         </header>
 
@@ -32,11 +39,12 @@
                     <form id="scanForm">
                         <div class="input-group">
                             <input 
-                                type="text" 
+                                type="url" 
                                 id="targetUrl" 
+                                name="targetUrl"
                                 placeholder="Enter domain or URL (e.g., gotchya.lol or https://example.com)" 
                                 required
-                                autocomplete="off"
+                                autocomplete="url"
                             >
                             <input 
                                 type="number" 
@@ -132,7 +140,12 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <p>&copy; 2026 Security Scanner. Professional Web Security Analysis Platform.</p>
+            <p>&copy; 2026 PULLEDOUT.LOL - Web Security Analysis Platform</p>
+            <div class="footer-links">
+                <a href="/terms" target="_blank">Terms of Service</a>
+                <span>•</span>
+                <a href="/privacy" target="_blank">Privacy Policy</a>
+            </div>
         </footer>
     </div>
 
