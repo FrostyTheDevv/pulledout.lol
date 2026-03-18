@@ -20,7 +20,10 @@ from typing import Optional
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__)
+# Create Flask app with explicit paths
+app = Flask(__name__,
+            template_folder='templates',
+            static_folder='static')
 CORS(app)
 
 # Configuration
