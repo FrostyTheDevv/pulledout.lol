@@ -1,9 +1,9 @@
 # Nixpacks configuration for Railway
 [phases.setup]
-nixPkgs = ["python313", "chromium", "chromedriver"]
+nixPkgs = ["python313", "python313Packages.pip", "chromium", "chromedriver"]
 
 [phases.install]
-cmds = ["python3 -m pip install --upgrade pip", "python3 -m pip install -r requirements.txt"]
+cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
 
 [phases.build]
 cmds = ["echo 'Build complete'"]
