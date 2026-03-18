@@ -13,4 +13,4 @@ cmds = [
 cmds = ["echo 'Build complete'"]
 
 [start]
-cmd = ". /opt/venv/bin/activate && gunicorn web_server:app --bind 0.0.0.0:$PORT --workers 4 --timeout 120"
+cmd = "/opt/venv/bin/gunicorn web_server:app --bind 0.0.0.0:$PORT --workers 4 --timeout 120"
