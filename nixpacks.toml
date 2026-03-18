@@ -1,12 +1,16 @@
 # Nixpacks configuration for Railway
 [phases.setup]
-nixPkgs = ["python313", "python313Packages.pip", "chromium", "chromedriver"]
+nixPkgs = ["python313", "chromium", "chromedriver"]
 
 [phases.install]
-cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
+cmds = [
+    "python3 -m venv /opt/venv",
+    ". /opt/venv/bin/activate && pip install --upgrade pip",
+    ". /opt/venv/bin/activate && pip install -r requirements.txt"
+]
 
 [phases.build]
 cmds = ["echo 'Build complete'"]
 
 [start]
-cmd = "gunicorn web_server:app --bind 0.0.0.0:$PORT --workers 4 --timeout 120"
+cmd = ". /opt/venv/bin/activate && gunicorn web_server:app --bind 0.0.0.0:$PORT --workers 4 --timeout 120"
