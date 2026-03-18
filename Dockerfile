@@ -25,5 +25,5 @@ COPY . .
 # Expose port (Railway will set PORT env var)
 EXPOSE 8080
 
-# Run gunicorn
-CMD gunicorn web_server:app --bind 0.0.0.0:$PORT --workers 4 --timeout 120
+# Run gunicorn (use shell form to allow variable expansion)
+CMD ["sh", "-c", "gunicorn web_server:app --bind 0.0.0.0:${PORT:-8080} --workers 4 --timeout 120"]
