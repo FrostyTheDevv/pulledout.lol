@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='pulledout.png') }}">
+    <title>SawSap - State of the Art Web Security Analysis Platform</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">SawSap</h1>
+                <p class="tagline">State of the Art Web Security Analysis Platform</p>
+            </div>
+            <div class="user-menu">
+                <span id="userGreeting" class="hidden">Welcome, <strong id="usernameDisplay"></strong></span>
+                <button id="logoutBtn" class="btn-logout hidden">Logout</button>
+                <button id="loginBtn" class="btn-login" onclick="window.location.href='/login'">Login</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Scan Form -->
+            <section class="scan-section">
+                <div class="scan-form-container">
+                    <h2>Start New Security Scan</h2>
+                    <form id="scanForm">
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="targetUrl" 
+                                placeholder="Enter domain or URL (e.g., gotchya.lol or https://example.com)" 
+                                required
+                                autocomplete="off"
+                            >
+                            <input 
+                                type="number" 
+                                id="maxPages" 
+                                placeholder="Max pages" 
+                                value="10"
+                                min="1"
+                                max="100"
+                                class="max-pages-input"
+                                title="Number of pages to scan (1-100)"
+                            >
+                            <button type="submit" id="scanButton" class="btn btn-primary">
+                                <span class="btn-text">Start Scan</span>
+                                <span class="btn-loader">
+                                    <span class="loader"></span>
+                                    Scanning...
+                                </span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Current Scan Progress -->
+            <section id="progressSection" class="progress-section">
+                <div class="progress-container">
+                    <h3>Scan in Progress</h3>
+                    <div class="progress-info">
+                        <span id="progressMessage">Initializing scan...</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                    <p id="targetUrlDisplay" class="target-url"></p>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section id="resultsSection" class="results-section">
+                <div class="results-container">
+                    <!-- Results Header -->
+                    <div class="results-header">
+                        <h1 id="resultsTitle">Results: <span id="resultsUrl"></span></h1>
+                        <div class="results-meta">
+                            <div><strong>Scanned at:</strong> <span id="scanTime"></span></div>
+                            <div><strong>Pages scanned:</strong> <span id="pagesScanned"></span></div>
+                            <div><strong>Risk score:</strong> <span class="risk-score-text"><span id="riskScore">0</span> (<span id="riskLevel">Low</span>)</span></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Summary Badges -->
+                    <div class="summary-badges">
+                        <span class="badge-display badge-high">HIGH: <span id="highCount">0</span></span>
+                        <span class="badge-display badge-medium">MEDIUM: <span id="mediumCount">0</span></span>
+                        <span class="badge-display badge-low">LOW: <span id="lowCount">0</span></span>
+                        <span class="badge-display badge-info">INFO: <span id="infoCount">0</span></span>
+                    </div>
+
+                    <!-- OWASP Overview -->
+                    <div class="owasp-overview">
+                        <h2>OWASP-style Overview</h2>
+                        <div id="categoryGrid" class="category-grid"></div>
+                    </div>
+
+                    <!-- Findings Table -->
+                    <div class="findings-table">
+                        <div class="findings-table-header">
+                            <div>SEVERITY</div>
+                            <div>CATEGORY</div>
+                            <div>DESCRIPTION</div>
+                            <div>URL</div>
+                        </div>
+                        <div id="findingsTableBody" class="findings-table-body"></div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="results-actions">
+                        <button id="downloadReportBtn" class="btn btn-success">Download Full Report</button>
+                        <button id="newScanBtn" class="btn btn-secondary">Start New Scan</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Recent Scans -->
+            <section class="recent-scans-section">
+                <h2>Recent Scans</h2>
+                <div id="recentScansList" class="recent-scans-list">
+                    <p class="empty-state">No recent scans. Start a scan to see results here.</p>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2026 Security Scanner. Professional Web Security Analysis Platform.</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
