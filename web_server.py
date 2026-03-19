@@ -42,12 +42,27 @@ Compress(app)
 
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///sawsap.db')
+
+# Database configuration with Railway support
+# Railway provides DATABASE_URL for PostgreSQL
+database_url = os.environ.get('DATABASE_URL')
+
+if database_url:
+    logger.info("DATABASE_URL environment variable found")
+    # Fix for Railway PostgreSQL URLs (postgres:// -> postgresql://)
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        logger.info("Converted postgres:// to postgresql://")
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+else:
+    logger.warning("DATABASE_URL not found in environment - using SQLite (data will NOT persist on Railway!)")
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///sawsap.db'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Fix for Railway PostgreSQL URLs (postgres:// -> postgresql://)
-if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
-    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
+# Log database type being used
+db_type = 'PostgreSQL' if 'postgresql://' in app.config['SQLALCHEMY_DATABASE_URI'] else 'SQLite'
+logger.info(f"Using database: {db_type}")
 
 # Initialize database
 init_database(app)
