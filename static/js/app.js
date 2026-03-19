@@ -16,6 +16,13 @@ function checkAuth() {
     }
 }
 
+// Handle authentication errors
+function handleAuthError() {
+    localStorage.removeItem('sessionToken');
+    localStorage.removeItem('username');
+    window.location.href = '/login';
+}
+
 // Logout function
 function logout() {
     fetch('/api/auth/logout', {
@@ -68,11 +75,17 @@ async function handleScanSubmit(event) {
     event.preventDefault();
     
     const urlInput = document.getElementById('targetUrl');
-    const targetUrl = urlInput.value.trim();
+    let targetUrl = urlInput.value.trim();
     
     if (!targetUrl) {
         showError('Please enter a valid URL');
         return;
+    }
+    
+    // Auto-prepend https:// if no protocol is specified
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+        targetUrl = 'https://' + targetUrl;
+        urlInput.value = targetUrl; // Update the input field to show the full URL
     }
     
     // Disable form
@@ -99,6 +112,11 @@ async function handleScanSubmit(event) {
                 max_pages: maxPages
             })
         });
+        
+        if (response.status === 401) {
+            handleAuthError();
+            return;
+        }
         
         if (!response.ok) {
             throw new Error('Failed to start scan');
@@ -145,7 +163,16 @@ async function checkScanStatus() {
     if (!currentScanId) return;
     
     try {
-        const response = await fetch(`${API_BASE}/api/scan/${currentScanId}/status`);
+        const response = await fetch(`${API_BASE}/api/scan/${currentScanId}/status`, {
+            headers: {
+                'Authorization': sessionToken
+            }
+        });
+        
+        if (response.status === 401) {
+            handleAuthError();
+            return;
+        }
         
         if (!response.ok) {
             throw new Error('Failed to check scan status');
@@ -178,7 +205,16 @@ async function loadScanResults() {
     if (!currentScanId) return;
     
     try {
-        const response = await fetch(`${API_BASE}/api/scan/${currentScanId}/results`);
+        const response = await fetch(`${API_BASE}/api/scan/${currentScanId}/results`, {
+            headers: {
+                'Authorization': sessionToken
+            }
+        });
+        
+        if (response.status === 401) {
+            handleAuthError();
+            return;
+        }
         
         if (!response.ok) {
             throw new Error('Failed to load scan results');
@@ -274,7 +310,16 @@ function displayResults(results) {
 // ==================== RECENT SCANS ====================
 async function loadRecentScans() {
     try {
-        const response = await fetch(`${API_BASE}/api/scans`);
+        const response = await fetch(`${API_BASE}/api/scans`, {
+            headers: {
+                'Authorization': sessionToken
+            }
+        });
+        
+        if (response.status === 401) {
+            handleAuthError();
+            return;
+        }
         
         if (!response.ok) {
             throw new Error('Failed to load recent scans');
@@ -349,7 +394,32 @@ async function downloadReport() {
     if (!currentScanId) return;
     
     try {
-        window.location.href = `${API_BASE}/api/scan/${currentScanId}/report`;
+        const response = await fetch(`${API_BASE}/api/scan/${currentScanId}/report`, {
+            headers: {
+                'Authorization': sessionToken
+            }
+        });
+        
+        if (response.status === 401) {
+            handleAuthError();
+            return;
+        }
+        
+        if (!response.ok) {
+            throw new Error('Failed to download report');
+        }
+        
+        // Get the HTML content
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `security-report-${currentScanId}.html`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
     } catch (error) {
         console.error('Error downloading report:', error);
         showError('Failed to download report');
