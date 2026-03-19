@@ -23,6 +23,32 @@ function handleAuthError() {
     window.location.href = '/login';
 }
 
+// Check system info
+async function checkSystemInfo() {
+    try {
+        const response = await fetch(`${API_BASE}/api/system/info`);
+        if (response.ok) {
+            const info = await response.json();
+            if (info.warning && info.database_type === 'SQLite' && info.is_production) {
+                showDatabaseWarning(info.warning);
+            }
+        }
+    } catch (error) {
+        console.error('Error checking system info:', error);
+    }
+}
+
+function showDatabaseWarning(message) {
+    const warningBanner = document.getElementById('databaseWarning');
+    if (warningBanner) {
+        const messageEl = warningBanner.querySelector('.warning-message');
+        if (messageEl) {
+            messageEl.textContent = message;
+        }
+        warningBanner.classList.remove('hidden');
+    }
+}
+
 // Logout function
 function logout() {
     fetch('/api/auth/logout', {
@@ -48,6 +74,9 @@ const API_BASE = window.location.origin;
 document.addEventListener('DOMContentLoaded', function() {
     // Check authentication first
     checkAuth();
+    
+    // Check system info (database type)
+    checkSystemInfo();
     
     // Set up logout button
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
@@ -174,6 +203,14 @@ async function checkScanStatus() {
             return;
         }
         
+        if (response.status === 404) {
+            // Scan doesn't exist (database was reset)
+            clearInterval(pollInterval);
+            showError('Scan not found. The database may have been reset. Please start a new scan.');
+            resetForm();
+            return;
+        }
+        
         if (!response.ok) {
             throw new Error('Failed to check scan status');
         }
@@ -213,6 +250,13 @@ async function loadScanResults() {
         
         if (response.status === 401) {
             handleAuthError();
+            return;
+        }
+        
+        if (response.status === 404) {
+            // Scan results don't exist (database was reset)
+            showError('Scan results not found. The database may have been reset. Please start a new scan.');
+            resetForm();
             return;
         }
         
@@ -322,7 +366,10 @@ async function loadRecentScans() {
         }
         
         if (!response.ok) {
-            throw new Error('Failed to load recent scans');
+            console.warn('Failed to load recent scans - may be database issue');
+            // Don't show error to user, just display empty state
+            displayRecentScans([]);
+            return;
         }
         
         const scans = await response.json();
@@ -330,6 +377,8 @@ async function loadRecentScans() {
         
     } catch (error) {
         console.error('Error loading recent scans:', error);
+        // Show empty state instead of error
+        displayRecentScans([]);
     }
 }
 

@@ -122,6 +122,43 @@ body {
     display: none;
 }
 
+/* ==================== WARNING BANNER ==================== */
+.warning-banner {
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 8px;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    animation: slideDown 0.3s ease-out;
+}
+
+.warning-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #ffc107;
+}
+
+.warning-content svg {
+    flex-shrink: 0;
+}
+
+.warning-message {
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 /* ==================== SCAN FORM ==================== */
 .scan-section {
     margin-bottom: 20px;

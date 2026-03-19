@@ -273,6 +273,20 @@ def delete_account():
     UserManager.delete_account(g.user_id)
     return jsonify({'success': True, 'message': 'Account deleted'})
 
+@app.route('/api/system/info', methods=['GET'])
+def get_system_info():
+    """Get system information including database type"""
+    db_uri = app.config['SQLALCHEMY_DATABASE_URI']
+    is_postgresql = 'postgresql://' in db_uri
+    is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL') is not None
+    
+    return jsonify({
+        'database_type': 'PostgreSQL' if is_postgresql else 'SQLite',
+        'is_persistent': is_postgresql,
+        'is_production': is_production,
+        'warning': None if is_postgresql else 'Using SQLite - data will be lost on restart. Add PostgreSQL database in Railway for persistence.'
+    })
+
 
 def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
     """Background thread to run security scan"""
