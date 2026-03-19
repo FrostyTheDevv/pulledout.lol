@@ -55,8 +55,21 @@ if database_url:
         logger.info("Converted postgres:// to postgresql://")
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 else:
-    logger.warning("DATABASE_URL not found in environment - using SQLite (data will NOT persist on Railway!)")
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///sawsap.db'
+    # Use volume-mounted path for SQLite persistence on Railway
+    # Local development: uses instance/ folder
+    # Railway: uses /data volume mount (configured in railway.json)
+    db_path = os.environ.get('DB_PATH', '/data/sawsap.db' if os.path.exists('/data') else 'sqlite:///instance/sawsap.db')
+    
+    # Ensure database directory exists
+    if db_path.startswith('/data'):
+        os.makedirs('/data', exist_ok=True)
+        app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+        logger.info(f"Using SQLite with persistent volume: {db_path}")
+    else:
+        # Local development
+        os.makedirs('instance', exist_ok=True)
+        app.config['SQLALCHEMY_DATABASE_URI'] = db_path
+        logger.info("Using SQLite in local instance folder")
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -278,13 +291,20 @@ def get_system_info():
     """Get system information including database type"""
     db_uri = app.config['SQLALCHEMY_DATABASE_URI']
     is_postgresql = 'postgresql://' in db_uri
+    is_volume_mounted = '/data/' in db_uri
+    is_persistent = is_postgresql or is_volume_mounted
     is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL') is not None
+    
+    warning = None
+    if not is_persistent and is_production:
+        warning = 'Using SQLite without volume - data will be lost on restart. Add PostgreSQL database or configure volume in Railway.'
     
     return jsonify({
         'database_type': 'PostgreSQL' if is_postgresql else 'SQLite',
-        'is_persistent': is_postgresql,
+        'is_persistent': is_persistent,
         'is_production': is_production,
-        'warning': None if is_postgresql else 'Using SQLite - data will be lost on restart. Add PostgreSQL database in Railway for persistence.'
+        'uses_volume': is_volume_mounted,
+        'warning': warning
     })
 
 

@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
+# Create volume mount point for database persistence
+RUN mkdir -p /data && chmod 777 /data
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 
