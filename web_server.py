@@ -6,6 +6,7 @@ Professional web-based security scanning platform with authentication
 from flask import Flask, render_template, request, jsonify, send_file, g, redirect, make_response
 from flask_cors import CORS
 from flask_compress import Compress
+import requests
 import threading
 import uuid
 import json
@@ -84,7 +85,7 @@ LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
 LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
 # Static file versioning for cache busting
-STATIC_VERSION = '20260321172300'  # Update this when static files change
+STATIC_VERSION = '20260321173500'  # Update this when static files change
 
 # Session configuration - auto-detect production HTTPS
 is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
@@ -346,7 +347,6 @@ def check_guild_membership(discord_id: str) -> dict:
         return {'has_access': True, 'in_guild': True, 'is_denied': False, 'reason': 'Guild verification disabled'}
     
     try:
-        import requests
         response = requests.get(
             f"{DISCORD_API_BASE}/guilds/{DISCORD_GUILD_ID}/members/{discord_id}",
             headers={'Authorization': f"Bot {DISCORD_BOT_TOKEN}"}
@@ -510,7 +510,6 @@ def discord_callback():
     
     try:
         # Exchange code for access token
-        import requests
         token_response = requests.post(
             f"{DISCORD_API_BASE}/oauth2/token",
             data={
@@ -844,8 +843,6 @@ def create_checkout():
         return jsonify({'error': 'Payment system not configured'}), 500
     
     try:
-        import requests
-        
         # Get user info from session
         discord_id = g.discord_id
         username = g.username
@@ -1105,12 +1102,46 @@ def debug_cookie():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
-    return jsonify({
+    """Health check endpoint with configuration status"""
+    config_status = {
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'active_scans': len([s for s in scan_status.values() if s['status'] == 'running'])
-    })
+        'active_scans': len([s for s in scan_status.values() if s['status'] == 'running']),
+        'environment': {
+            'is_production': is_production,
+            'database_type': 'PostgreSQL' if database_url else 'SQLite',
+        },
+        'configuration': {
+            'discord_oauth': {
+                'configured': all([DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI]),
+                'client_id_set': bool(DISCORD_CLIENT_ID),
+                'client_secret_set': bool(DISCORD_CLIENT_SECRET),
+                'redirect_uri': DISCORD_REDIRECT_URI or 'NOT SET',
+                'bot_token_set': bool(DISCORD_BOT_TOKEN),
+                'guild_id_set': bool(DISCORD_GUILD_ID)
+            },
+            'payment': {
+                'configured': all([LEMONSQUEEZY_API_KEY, LEMONSQUEEZY_STORE_ID, LEMONSQUEEZY_PRODUCT_ID]),
+                'api_key_set': bool(LEMONSQUEEZY_API_KEY),
+                'store_url': LEMONSQUEEZY_STORE_URL or 'NOT SET',
+                'store_id': LEMONSQUEEZY_STORE_ID or 'NOT SET',
+                'product_id': LEMONSQUEEZY_PRODUCT_ID or 'NOT SET'
+            },
+            'static_version': STATIC_VERSION
+        }
+    }
+    
+    # Add warnings for missing configuration
+    warnings = []
+    if not config_status['configuration']['discord_oauth']['configured']:
+        warnings.append('Discord OAuth not fully configured - login will not work')
+    if not config_status['configuration']['payment']['configured']:
+        warnings.append('Payment system not fully configured - purchases will not work')
+    
+    if warnings:
+        config_status['warnings'] = warnings
+    
+    return jsonify(config_status)
 
 # Wrap app with middleware to remove Server header
 app.wsgi_app = RemoveServerHeaderMiddleware(app.wsgi_app)
