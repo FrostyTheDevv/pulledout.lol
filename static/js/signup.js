@@ -1,4 +1,4 @@
-// Signup Page JavaScript
+have// Signup Page JavaScript
 
 // Get CSRF token from meta tag
 function getCSRFToken() {

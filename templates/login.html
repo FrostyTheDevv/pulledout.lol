@@ -37,7 +37,7 @@
             
             <!-- CSRF Protection: Token sent via X-CSRF-Token header (see login.js), also available in meta tag -->
             <form id="loginForm" class="auth-form" method="POST" action="/api/auth/login" autocomplete="on" data-csrf="{{ form_state }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="h" value="{{ csrf_token }}">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username">

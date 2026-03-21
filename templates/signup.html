@@ -38,7 +38,7 @@
             
             <!-- CSRF Protection: Token sent via X-CSRF-Token header (see signup.js), also available in meta tag -->
             <form id="signupForm" class="auth-form" method="POST" action="/api/auth/signup" autocomplete="on" data-csrf="{{ form_state }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="h" value="{{ csrf_token }}">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input type="text" id="username" name="username" required autocomplete="username" 

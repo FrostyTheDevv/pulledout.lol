@@ -60,7 +60,7 @@
                     <h2>Start New Security Scan</h2>
                     <!-- CSRF Protection: Token sent via X-CSRF-Token header (see app.js), also available in meta tag -->
                     <form id="scanForm" method="POST" action="/api/scan" autocomplete="on" data-csrf="{{ form_state }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="h" value="{{ csrf_token }}">
                         <div class="input-group">
                             <input 
                                 type="url" 
