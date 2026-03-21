@@ -697,6 +697,23 @@ def list_scans():
     
     return jsonify(scans)
 
+@app.route('/debug/cookie', methods=['GET'])
+def debug_cookie():
+    """Debug endpoint to check Set-Cookie header format"""
+    from flask import make_response, session
+    # Force session creation
+    session['debug'] = 'test'
+    response = make_response(jsonify({
+        'message': 'Check Set-Cookie header in network inspector',
+        'session_config': {
+            'SECURE': app.config.get('SESSION_COOKIE_SECURE'),
+            'HTTPONLY': app.config.get('SESSION_COOKIE_HTTPONLY'),
+            'SAMESITE': app.config.get('SESSION_COOKIE_SAMESITE'),
+            'PATH': app.config.get('SESSION_COOKIE_PATH')
+        }
+    }))
+    return response
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
