@@ -48,14 +48,21 @@ app = Flask(__name__,
             template_folder='templates',
             static_folder='static')
 
-# Configure CORS with specific origin (no wildcard)
-CORS(app, origins=['https://pulledout.lol', 'http://localhost:5000', 'http://127.0.0.1:5000'])
+# Configure CORS with specific origin (no wildcard) and support credentials
+CORS(app, 
+     origins=['https://pulledout.lol', 'http://localhost:5000', 'http://127.0.0.1:5000'],
+     supports_credentials=True)
 
 # Enable gzip compression for all responses
 Compress(app)
 
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Session configuration
+app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # Database configuration with Railway support
 # Railway provides DATABASE_URL for PostgreSQL
@@ -116,9 +123,20 @@ def inject_csrf_token():
 def csrf_protected(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Skip CSRF in development if explicitly disabled
+        if os.environ.get('DISABLE_CSRF') == 'true':
+            logger.warning("CSRF protection disabled for development")
+            return f(*args, **kwargs)
+            
         # Get token from header or form data
         token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token') or (request.json or {}).get('csrf_token')
+        
+        # Log for debugging
+        session_token = session.get('csrf_token')
+        logger.info(f"CSRF Check - Session token exists: {bool(session_token)}, Request token exists: {bool(token)}")
+        
         if not validate_csrf_token(token):
+            logger.warning(f"CSRF validation failed - IP: {request.remote_addr}, Endpoint: {request.endpoint}")
             return jsonify({'error': 'Invalid CSRF token'}), 403
         return f(*args, **kwargs)
     return decorated_function
