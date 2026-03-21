@@ -282,7 +282,7 @@ def add_security_headers(response):
     if 'X-Powered-By' in response.headers:
         del response.headers['X-Powered-By']
     
-    # Manually ensure SameSite is set on ALL session cookies (Flask config unreliable)
+    # Manually ensure SameSite is set on ALL session cookies (Flask may not set it reliably)
     if 'Set-Cookie' in response.headers:
         cookies = response.headers.getlist('Set-Cookie')
         response.headers.remove('Set-Cookie')
@@ -291,20 +291,15 @@ def add_security_headers(response):
                 # Log original cookie for debugging
                 logger.info(f"Original Set-Cookie: {cookie}")
                 
-                # Remove any existing SameSite attribute (to avoid duplicates)
-                cookie = re.sub(r';\s*[Ss]ame[Ss]ite=[^\s;]*', '', cookie)
-                
-                # Add SameSite=Lax with proper formatting - EXACTLY as scanners expect
-                # Format: "session=...; Path=/; HttpOnly; Secure; SameSite=Lax"
-                if not cookie.endswith(';'):
-                    cookie += ';'
-                cookie += ' SameSite=Lax'
-                
-                # Verify it was added correctly
-                if 'SameSite=Lax' in cookie:
-                    logger.info(f"✓ Set-Cookie with SameSite: {cookie}")
+                # Only add SameSite if not already present (case-insensitive check)
+                if 'samesite=' not in cookie.lower():
+                    # Ensure proper formatting: add semicolon if needed, then attribute
+                    if not cookie.rstrip().endswith(';'):
+                        cookie = cookie.rstrip() + ';'
+                    cookie += ' SameSite=Lax'
+                    logger.info(f"✓ Added SameSite: {cookie}")
                 else:
-                    logger.error(f"✗ SameSite NOT added correctly: {cookie}")
+                    logger.info(f"✓ SameSite already present: {cookie}")
                     
             response.headers.add('Set-Cookie', cookie)
     
