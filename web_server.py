@@ -11,6 +11,7 @@ import uuid
 import json
 import os
 import logging
+import secrets
 from datetime import datetime
 from core.scanner import SecurityScanner
 from core.report_generator import generate_html_report
@@ -25,6 +26,19 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# WSGI middleware to remove Server header
+class RemoveServerHeaderMiddleware:
+    """Middleware to strip Server header from all responses"""
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        def custom_start_response(status, headers, exc_info=None):
+            # Remove Server header
+            headers = [(name, value) for name, value in headers if name.lower() != 'server']
+            return start_response(status, headers, exc_info)
+        return self.app(environ, custom_start_response)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -80,6 +94,35 @@ logger.info(f"Using database: {db_type}")
 # Initialize database
 init_database(app)
 
+# CSRF Protection Helpers
+from flask import session
+
+def generate_csrf_token():
+    """Generate a new CSRF token and store it in the session"""
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_hex(32)
+    return session['csrf_token']
+
+def validate_csrf_token(token):
+    """Validate CSRF token from request"""
+    return token and session.get('csrf_token') == token
+
+# Make CSRF token available to all templates
+@app.context_processor
+def inject_csrf_token():
+    return dict(csrf_token=generate_csrf_token)
+
+# CSRF protection decorator for API routes
+def csrf_protected(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Get token from header or form data
+        token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token') or (request.json or {}).get('csrf_token')
+        if not validate_csrf_token(token):
+            return jsonify({'error': 'Invalid CSRF token'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
 # Security Headers Middleware - Apply to all responses
 @app.after_request
 def add_security_headers(response):
@@ -91,8 +134,8 @@ def add_security_headers(response):
     # Content Security Policy - Comprehensive directives
     csp_directives = [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "script-src 'self'",
+        "style-src 'self' https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data: https:",
         "connect-src 'self'",
@@ -221,6 +264,7 @@ def login_required(f):
 # Authentication Routes
 
 @app.route('/api/auth/signup', methods=['POST'])
+@csrf_protected
 def signup():
     """Create new user account"""
     data = request.json
@@ -248,6 +292,7 @@ def signup():
         return jsonify({'error': result['error']}), 400
 
 @app.route('/api/auth/login', methods=['POST'])
+@csrf_protected
 def login():
     """Authenticate user and create session"""
     data = request.json
@@ -457,6 +502,7 @@ def security_txt():
 
 @app.route('/api/scan', methods=['POST'])
 @login_required
+@csrf_protected
 def start_scan():
     """Start a new security scan (requires authentication)"""
     data = request.json
@@ -581,6 +627,9 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'active_scans': len([s for s in scan_status.values() if s['status'] == 'running'])
     })
+
+# Wrap app with middleware to remove Server header
+app.wsgi_app = RemoveServerHeaderMiddleware(app.wsgi_app)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

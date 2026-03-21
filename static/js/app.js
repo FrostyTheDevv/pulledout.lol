@@ -1,4 +1,10 @@
 // ==================== AUTHENTICATION ====================
+// Get CSRF token from meta tag
+function getCSRFToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+}
+
 let sessionToken = localStorage.getItem('sessionToken');
 let currentUsername = localStorage.getItem('username');
 
@@ -54,7 +60,8 @@ function logout() {
     fetch('/api/auth/logout', {
         method: 'POST',
         headers: {
-            'Authorization': sessionToken
+            'Authorization': sessionToken,
+            'X-CSRF-Token': getCSRFToken()
         }
     }).finally(() => {
         localStorage.removeItem('sessionToken');
@@ -134,7 +141,8 @@ async function handleScanSubmit(event) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': sessionToken
+                'Authorization': sessionToken,
+                'X-CSRF-Token': getCSRFToken()
             },
             body: JSON.stringify({ 
                 url: targetUrl,

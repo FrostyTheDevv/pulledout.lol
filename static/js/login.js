@@ -1,5 +1,11 @@
 // Login Page JavaScript
 
+// Get CSRF token from meta tag
+function getCSRFToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+}
+
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     
@@ -23,7 +29,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
             },
             body: JSON.stringify({ username, password })
         });
