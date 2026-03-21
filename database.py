@@ -24,12 +24,13 @@ DATABASE_FILE = 'sawsap.db'
 # SQLAlchemy Models
 
 class User(db.Model):
-    """User account model"""
+    """User account model - Discord OAuth only"""
     __tablename__ = 'users'
     
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
+    discord_id = db.Column(db.String(100), unique=True, nullable=False, index=True)  # Discord user ID
+    discord_username = db.Column(db.String(100), nullable=False)  # Discord username
+    discord_avatar = db.Column(db.String(255))  # Discord avatar URL
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     last_login = db.Column(db.DateTime)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
@@ -38,17 +39,14 @@ class User(db.Model):
     sessions = db.relationship('Session', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     scans = db.relationship('Scan', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     
-    def __init__(self, username: str, **kwargs):
-        """Initialize User model"""
-        super(User, self).__init__(username=username, **kwargs)  # type: ignore
-    
-    def set_password(self, password):
-        """Hash and set password"""
-        self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
-    
-    def check_password(self, password):
-        """Verify password"""
-        return check_password_hash(self.password_hash, password)
+    def __init__(self, discord_id: str, discord_username: str, discord_avatar: str = None, **kwargs):
+        """Initialize User model with Discord data"""
+        super(User, self).__init__(
+            discord_id=discord_id,
+            discord_username=discord_username,
+            discord_avatar=discord_avatar,
+            **kwargs
+        )
 
 
 class Session(db.Model):
@@ -139,73 +137,35 @@ def init_database(app):
 
 
 class UserManager:
-    """Handles user account operations"""
+    """Handles user account operations - Discord OAuth"""
     
     @staticmethod
-    def create_user(username: str, password: str) -> Dict:
-        """Create new user account with secure password hashing"""
-        logger.info(f"Attempting to create user: {username}")
-        
-        # Validate username
-        if not username or len(username) < 3 or len(username) > 30:
-            logger.warning(f"User creation failed - invalid username length: {username}")
-            return {'success': False, 'error': 'Username must be 3-30 characters'}
-        
-        if not username.replace('_', '').replace('-', '').isalnum():
-            logger.warning(f"User creation failed - invalid username characters: {username}")
-            return {'success': False, 'error': 'Username can only contain letters, numbers, - and _'}
-        
-        # Validate password
-        if not password or len(password) < 8:
-            logger.warning(f"User creation failed - password too short for user: {username}")
-            return {'success': False, 'error': 'Password must be at least 8 characters'}
-        
-        if len(password) > 128:
-            logger.warning(f"User creation failed - password too long for user: {username}")
-            return {'success': False, 'error': 'Password too long (max 128 characters)'}
+    def create_or_update_discord_user(discord_id: str, discord_username: str, discord_avatar: str = None) -> Dict:
+        """Create new user or update existing user from Discord OAuth"""
+        logger.info(f"Discord OAuth - Processing user: {discord_username} (ID: {discord_id})")
         
         try:
-            # Check if username exists
-            if User.query.filter_by(username=username).first():
-                logger.warning(f"User creation failed - username exists: {username}")
-                return {'success': False, 'error': 'Username already exists'}
+            # Check if user exists
+            user = User.query.filter_by(discord_id=discord_id).first()
             
-            # Create user
-            user = User(username=username)
-            user.set_password(password)
+            if user:
+                # Update existing user info
+                user.discord_username = discord_username
+                user.discord_avatar = discord_avatar
+                user.last_login = datetime.utcnow()
+                logger.info(f"Updated existing Discord user: {discord_username}")
+            else:
+                # Create new user
+                user = User(
+                    discord_id=discord_id,
+                    discord_username=discord_username,
+                    discord_avatar=discord_avatar
+                )
+                user.last_login = datetime.utcnow()
+                db.session.add(user)
+                logger.info(f"Created new Discord user: {discord_username}")
             
-            db.session.add(user)
             db.session.commit()
-            
-            logger.info(f"User created successfully: {username} (ID: {user.id})")
-            return {'success': True, 'user_id': user.id, 'username': username}
-            
-        except Exception as e:
-            db.session.rollback()
-            return {'success': False, 'error': f'Database error: {str(e)}'}
-    
-    @staticmethod
-    def authenticate(username: str, password: str) -> Dict:
-        """Authenticate user and create session"""
-        try:
-            logger.info(f"Authentication attempt for username: {username}")
-            
-            # Get user
-            user = User.query.filter_by(username=username).first()
-            
-            if not user:
-                logger.warning(f"Authentication failed - user not found: {username}")
-                return {'success': False, 'error': 'Invalid username or password'}
-            
-            # Check if account is active
-            if not user.is_active:
-                logger.warning(f"Authentication failed - account disabled: {username}")
-                return {'success': False, 'error': 'Account is disabled'}
-            
-            # Verify password
-            if not user.check_password(password):
-                logger.warning(f"Authentication failed - invalid password for user: {username}")
-                return {'success': False, 'error': 'Invalid username or password'}
             
             # Create session token
             session_token = secrets.token_urlsafe(32)
@@ -218,25 +178,23 @@ class UserManager:
                 expires_at=expires_at
             )
             db.session.add(session)
-            
-            # Update last login
-            user.last_login = datetime.utcnow()
-            
             db.session.commit()
             
-            logger.info(f"Authentication successful for user: {username}")
+            logger.info(f"Discord auth successful for user: {discord_username}")
             return {
                 'success': True,
                 'user_id': user.id,
-                'username': username,
+                'username': discord_username,
+                'discord_id': discord_id,
+                'discord_avatar': discord_avatar,
                 'session_token': session_token,
                 'expires_at': expires_at.isoformat()
             }
             
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Authentication error for user {username}: {str(e)}", exc_info=True)
-            return {'success': False, 'error': f'Authentication error: {str(e)}'}
+            logger.error(f"Discord user creation/update error: {str(e)}", exc_info=True)
+            return {'success': False, 'error': f'Database error: {str(e)}'}
     
     @staticmethod
     def verify_session(session_token: str) -> Optional[Dict]:
@@ -260,7 +218,9 @@ class UserManager:
             
             return {
                 'user_id': session.user.id,
-                'username': session.user.username
+                'username': session.user.discord_username,
+                'discord_id': session.user.discord_id,
+                'discord_avatar': session.user.discord_avatar
             }
             
         except Exception as e:

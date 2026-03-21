@@ -3,7 +3,7 @@ Web Security Scanner - Flask Web Interface
 Professional web-based security scanning platform with authentication
 """
 
-from flask import Flask, render_template, request, jsonify, send_file, g
+from flask import Flask, render_template, request, jsonify, send_file, g, redirect, make_response
 from flask_cors import CORS
 from flask_compress import Compress
 import threading
@@ -64,6 +64,24 @@ Compress(app)
 
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Discord OAuth Configuration
+DISCORD_CLIENT_ID = os.environ.get('DISCORD_CLIENT_ID')
+DISCORD_CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET')
+DISCORD_REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', 'https://pulledout.lol/auth/discord/callback')
+DISCORD_API_BASE = 'https://discord.com/api/v10'
+
+# Discord Bot Configuration for Guild Verification
+DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
+DISCORD_GUILD_ID = os.environ.get('DISCORD_GUILD_ID')
+DISCORD_BUYER_ROLE_ID = os.environ.get('DISCORD_BUYER_ROLE_ID', '1484996965195579503')
+DISCORD_DENIED_ROLE_ID = os.environ.get('DISCORD_DENIED_ROLE_ID', '1484997044618792982')
+
+# Payment Configuration
+LEMONSQUEEZY_API_KEY = os.environ.get('LEMONSQUEEZY_API_KEY')
+LEMONSQUEEZY_STORE_URL = os.environ.get('LEMONSQUEEZY_STORE_URL')
+LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
+LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
 # Session configuration - auto-detect production HTTPS
 is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
@@ -194,8 +212,6 @@ def add_security_headers(response):
         "frame-src 'none'",
         "worker-src 'self'",
         "manifest-src 'self'",
-        "prefetch-src 'self'",
-        "navigate-to 'self' https:",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
@@ -224,7 +240,6 @@ def add_security_headers(response):
         'accelerometer=()',
         'gyroscope=()',
         'magnetometer=()',
-        'ambient-light-sensor=()',
         'autoplay=()',
         'encrypted-media=()',
         'fullscreen=()',
@@ -317,6 +332,85 @@ scan_status = {}
 REPORTS_DIR = 'reports'
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
+# Guild Membership Check
+def check_guild_membership(discord_id: str) -> dict:
+    """
+    Check if a Discord user is a member of the required guild and has the correct roles.
+    Returns dict with 'has_access', 'reason', 'in_guild', and 'is_denied' keys.
+    """
+    if not DISCORD_BOT_TOKEN or not DISCORD_GUILD_ID:
+        logger.warning("Guild verification not configured - allowing access")
+        return {'has_access': True, 'in_guild': True, 'is_denied': False, 'reason': 'Guild verification disabled'}
+    
+    try:
+        import requests
+        response = requests.get(
+            f"{DISCORD_API_BASE}/guilds/{DISCORD_GUILD_ID}/members/{discord_id}",
+            headers={'Authorization': f"Bot {DISCORD_BOT_TOKEN}"}
+        )
+        
+        if response.status_code == 404:
+            logger.info(f"User {discord_id} is NOT in guild {DISCORD_GUILD_ID}")
+            return {
+                'has_access': False,
+                'in_guild': False,
+                'is_denied': False,
+                'reason': 'You must purchase access to join the server'
+            }
+        
+        if response.status_code != 200:
+            logger.error(f"Guild check failed with status {response.status_code}: {response.text}")
+            return {
+                'has_access': False,
+                'in_guild': False,
+                'is_denied': False,
+                'reason': 'Unable to verify server membership'
+            }
+        
+        # User is in guild, now check roles
+        member_data = response.json()
+        user_roles = member_data.get('roles', [])
+        
+        logger.info(f"User {discord_id} roles: {user_roles}")
+        
+        # Check for denied role (M.U role)
+        if DISCORD_DENIED_ROLE_ID in user_roles:
+            logger.warning(f"User {discord_id} has denied role (M.U)")
+            return {
+                'has_access': False,
+                'in_guild': True,
+                'is_denied': True,
+                'reason': 'Access denied: Your account has been restricted'
+            }
+        
+        # Check for buyer role
+        if DISCORD_BUYER_ROLE_ID not in user_roles:
+            logger.info(f"User {discord_id} is in guild but missing buyer role")
+            return {
+                'has_access': False,
+                'in_guild': True,
+                'is_denied': False,
+                'reason': 'You must purchase access to use this service'
+            }
+        
+        # User has buyer role and no denied role
+        logger.info(f"User {discord_id} has valid access (buyer role)")
+        return {
+            'has_access': True,
+            'in_guild': True,
+            'is_denied': False,
+            'reason': 'Access granted'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking guild membership: {str(e)}", exc_info=True)
+        return {
+            'has_access': False,
+            'in_guild': False,
+            'is_denied': False,
+            'reason': 'Error verifying server membership'
+        }
+
 # Authentication decorator
 def login_required(f):
     """Decorator to require authentication for endpoints"""
@@ -334,68 +428,188 @@ def login_required(f):
         # Attach user info to Flask g object (request context)
         g.user_id = user_info['user_id']
         g.username = user_info['username']
+        g.discord_id = user_info.get('discord_id')
+        g.discord_avatar = user_info.get('discord_avatar')
         
         return f(*args, **kwargs)
     return decorated_function
 
-# Authentication Routes
+# Guild membership decorator
+def guild_required(f):
+    """Decorator to require both authentication AND guild membership"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        session_token = request.headers.get('Authorization')
+        if not session_token:
+            return jsonify({'error': 'Authentication required', 'requires_auth': True}), 401
+        
+        # Verify session
+        user_info = UserManager.verify_session(session_token)
+        if not user_info:
+            return jsonify({'error': 'Invalid or expired session', 'requires_auth': True}), 401
+        
+        # Check guild membership
+        discord_id = user_info.get('discord_id')
+        if not discord_id:
+            return jsonify({'error': 'Discord account not linked', 'requires_auth': True}), 401
+        
+        access_check = check_guild_membership(discord_id)
+        if not access_check['has_access']:
+            # Check if user is denied
+            if access_check.get('is_denied', False):
+                return jsonify({
+                    'error': access_check['reason'],
+                    'is_denied': True,
+                    'denied_url': '/denied'
+                }), 403
+            return jsonify({
+                'error': access_check['reason'],
+                'requires_guild': not access_check['in_guild'],
+                'requires_purchase': access_check['in_guild'],
+                'pay_url': '/pay'
+            }), 403
+        
+        # Attach user info to Flask g object (request context)
+        g.user_id = user_info['user_id']
+        g.username = user_info['username']
+        g.discord_id = discord_id
+        g.discord_avatar = user_info.get('discord_avatar')
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Authentication Routes - Discord OAuth
+
+@app.route('/api/auth/discord/login', methods=['GET'])
+def discord_login():
+    """Initiate Discord OAuth flow"""
+    if not DISCORD_CLIENT_ID:
+        return jsonify({'error': 'Discord OAuth not configured'}), 500
+    
+    # Build OAuth URL
+    oauth_url = (
+        f"{DISCORD_API_BASE}/oauth2/authorize"
+        f"?client_id={DISCORD_CLIENT_ID}"
+        f"&redirect_uri={DISCORD_REDIRECT_URI}"
+        f"&response_type=code"
+        f"&scope=identify"
+    )
+    
+    return jsonify({'auth_url': oauth_url})
+
+@app.route('/auth/discord/callback', methods=['GET'])
+def discord_callback():
+    """Handle Discord OAuth callback"""
+    code = request.args.get('code')
+    
+    if not code:
+        return render_template('login.html', error='Discord authentication failed')
+    
+    try:
+        # Exchange code for access token
+        import requests
+        token_response = requests.post(
+            f"{DISCORD_API_BASE}/oauth2/token",
+            data={
+                'client_id': DISCORD_CLIENT_ID,
+                'client_secret': DISCORD_CLIENT_SECRET,
+                'grant_type': 'authorization_code',
+                'code': code,
+                'redirect_uri': DISCORD_REDIRECT_URI
+            },
+            headers={'Content-Type': 'application/x-www-form-urlencoded'}
+        )
+        
+        if token_response.status_code != 200:
+            logger.error(f"Discord token exchange failed: {token_response.text}")
+            return render_template('login.html', error='Discord authentication failed')
+        
+        token_data = token_response.json()
+        access_token = token_data['access_token']
+        
+        # Get user info from Discord
+        user_response = requests.get(
+            f"{DISCORD_API_BASE}/users/@me",
+            headers={'Authorization': f"Bearer {access_token}"}
+        )
+        
+        if user_response.status_code != 200:
+            logger.error(f"Discord user fetch failed: {user_response.text}")
+            return render_template('login.html', error='Failed to get Discord user info')
+        
+        user_data = user_response.json()
+        
+        # Extract user info
+        discord_id = user_data['id']
+        discord_username = f"{user_data['username']}#{user_data['discriminator']}" if user_data.get('discriminator') != '0' else user_data['username']
+        discord_avatar = f"https://cdn.discordapp.com/avatars/{discord_id}/{user_data['avatar']}.png" if user_data.get('avatar') else None
+        
+        logger.info(f"Discord OAuth successful for user: {discord_username}")
+        
+        # Create or update user in database
+        result = UserManager.create_or_update_discord_user(discord_id, discord_username, discord_avatar)
+        
+        if result['success']:
+            # Check guild membership and roles BEFORE allowing access
+            access_check = check_guild_membership(discord_id)
+            
+            # Determine redirect URL based on access status
+            redirect_url = '/'
+            if not access_check['has_access']:
+                # Check if user is denied (M.U role)
+                if access_check.get('is_denied', False):
+                    redirect_url = '/denied'
+                    logger.warning(f"User {discord_username} has M.U role - redirected to /denied")
+                else:
+                    # User doesn't have access - redirect to payment page
+                    redirect_url = '/pay'
+                    logger.info(f"User {discord_username} redirected to /pay: {access_check['reason']}")
+            else:
+                logger.info(f"User {discord_username} has access - redirecting to dashboard")
+            
+            # Render success page with token and redirect
+            return f'''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Login Successful</title>
+                <script>
+                    // Store auth data in localStorage
+                    localStorage.setItem('sessionToken', '{result["session_token"]}');
+                    localStorage.setItem('username', '{result["username"]}');
+                    localStorage.setItem('discordAvatar', '{result.get("discord_avatar", "")}');
+                    
+                    // Redirect based on access
+                    window.location.href = '{redirect_url}';
+                </script>
+            </head>
+            <body>
+                <p>Logging you in...</p>
+            </body>
+            </html>
+            '''
+        else:
+            return render_template('login.html', error='Failed to create user account')
+            
+    except Exception as e:
+        logger.error(f"Discord OAuth error: {str(e)}", exc_info=True)
+        return render_template('login.html', error='Discord authentication error')
 
 @app.route('/api/auth/signup', methods=['POST'])
-@csrf_protected
 def signup():
-    """Create new user account"""
-    data = request.json
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
-    
-    logger.info(f"Signup attempt from IP: {request.remote_addr}, Username: {username}")
-    
-    if not username or not password:
-        logger.warning(f"Signup failed - missing credentials from {request.remote_addr}")
-        return jsonify({'error': 'Username and password required'}), 400
-    
-    result = UserManager.create_user(username, password)
-    
-    if result['success']:
-        logger.info(f"Signup successful for user: {username}")
-        return jsonify({
-            'success': True,
-            'message': 'Account created successfully',
-            'user_id': result['user_id'],
-            'username': result['username']
-        })
-    else:
-        logger.warning(f"Signup failed for user {username}: {result['error']}")
-        return jsonify({'error': result['error']}), 400
+    """Redirect to Discord OAuth (signup = login for Discord OAuth)"""
+    return jsonify({
+        'error': 'Please use Discord login',
+        'message': 'Authentication is handled through Discord'
+    }), 400
 
 @app.route('/api/auth/login', methods=['POST'])
-@csrf_protected
 def login():
-    """Authenticate user and create session"""
-    data = request.json
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
-    
-    logger.info(f"Login attempt from IP: {request.remote_addr}, Username: {username}")
-    
-    if not username or not password:
-        logger.warning(f"Login failed - missing credentials from {request.remote_addr}")
-        return jsonify({'error': 'Username and password required'}), 400
-    
-    result = UserManager.authenticate(username, password)
-    
-    if result['success']:
-        logger.info(f"Login successful for user: {username}")
-        return jsonify({
-            'success': True,
-            'message': 'Login successful',
-            'session_token': result['session_token'],
-            'username': result['username'],
-            'expires_at': result['expires_at']
-        })
-    else:
-        logger.warning(f"Login failed for user {username}: {result['error']}")
-        return jsonify({'error': result['error']}), 401
+    """Redirect to Discord OAuth (no password login)"""
+    return jsonify({
+        'error': 'Please use Discord login',
+        'message': 'Authentication is handled through Discord'
+    }), 400
 
 @app.route('/api/auth/logout', methods=['POST'])
 @login_required
@@ -412,8 +626,31 @@ def get_current_user():
     """Get current user info"""
     return jsonify({
         'user_id': g.user_id,
-        'username': g.username
+        'username': g.username,
+        'discord_id': g.discord_id,
+        'discord_avatar': g.discord_avatar
     })
+
+@app.route('/api/auth/check-access', methods=['GET'])
+@login_required
+def check_access():
+    """Check if user has guild access"""
+    access_check = check_guild_membership(g.discord_id)
+    
+    response_data = {
+        'has_access': access_check['has_access'],
+        'in_guild': access_check['in_guild'],
+        'is_denied': access_check.get('is_denied', False),
+        'reason': access_check['reason']
+    }
+    
+    # Add appropriate URL based on status
+    if access_check.get('is_denied', False):
+        response_data['denied_url'] = '/denied'
+    elif not access_check['has_access']:
+        response_data['pay_url'] = '/pay'
+    
+    return jsonify(response_data)
 
 @app.route('/api/auth/delete', methods=['DELETE'])
 @login_required
@@ -544,7 +781,23 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
 
 @app.route('/')
 def index():
-    """Main dashboard page"""
+    """Main dashboard page - requires authentication and access"""
+    # Check if user has session token
+    session_token = request.cookies.get('sessionToken')
+    
+    if not session_token:
+        # No session, redirect to signup
+        return redirect('/signup')
+    
+    # Verify session
+    user_info = UserManager.verify_session(session_token)
+    if not user_info:
+        # Invalid session, redirect to signup
+        response = make_response(redirect('/signup'))
+        response.set_cookie('sessionToken', '', expires=0)
+        return response
+    
+    # Render dashboard - frontend will check guild/role access
     return render_template('index.html')
 
 @app.route('/login')
@@ -567,6 +820,136 @@ def privacy_page():
     """Privacy Policy page"""
     return render_template('privacy.html')
 
+@app.route('/pay')
+def pay_page():
+    """Payment page for server access"""
+    return render_template('pay.html')
+
+@app.route('/denied')
+def denied_page():
+    """Access denied page for users with M.U role"""
+    return render_template('denied.html')
+
+# Payment API Routes
+
+@app.route('/api/payment/create-checkout', methods=['POST'])
+@login_required
+def create_checkout():
+    """Create a LemonSqueezy checkout session"""
+    if not all([LEMONSQUEEZY_API_KEY, LEMONSQUEEZY_STORE_ID, LEMONSQUEEZY_PRODUCT_ID]):
+        logger.error("LemonSqueezy configuration missing")
+        return jsonify({'error': 'Payment system not configured'}), 500
+    
+    try:
+        import requests
+        
+        # Get user info from session
+        discord_id = g.discord_id
+        username = g.username
+        
+        # Create checkout session with LemonSqueezy
+        checkout_data = {
+            "data": {
+                "type": "checkouts",
+                "attributes": {
+                    "checkout_data": {
+                        "custom": {
+                            "discord_id": discord_id,
+                            "username": username
+                        }
+                    },
+                    "product_options": {
+                        "redirect_url": f"{DISCORD_REDIRECT_URI.rsplit('/auth', 1)[0]}/",
+                        "receipt_link_url": f"{DISCORD_REDIRECT_URI.rsplit('/auth', 1)[0]}/"
+                    },
+                    "checkout_options": {
+                        "button_color": "#667eea"
+                    }
+                },
+                "relationships": {
+                    "store": {
+                        "data": {
+                            "type": "stores",
+                            "id": LEMONSQUEEZY_STORE_ID
+                        }
+                    },
+                    "variant": {
+                        "data": {
+                            "type": "variants",
+                            "id": LEMONSQUEEZY_PRODUCT_ID
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Make request to LemonSqueezy API
+        response = requests.post(
+            'https://api.lemonsqueezy.com/v1/checkouts',
+            json=checkout_data,
+            headers={
+                'Accept': 'application/vnd.api+json',
+                'Content-Type': 'application/vnd.api+json',
+                'Authorization': f'Bearer {LEMONSQUEEZY_API_KEY}'
+            }
+        )
+        
+        if response.status_code in (200, 201):
+            data = response.json()
+            checkout_url = data['data']['attributes']['url']
+            logger.info(f"Checkout created for user {username} ({discord_id})")
+            return jsonify({'checkout_url': checkout_url})
+        else:
+            logger.error(f"LemonSqueezy checkout failed: {response.status_code} - {response.text}")
+            return jsonify({'error': 'Failed to create checkout session'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error creating checkout: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Payment system error'}), 500
+
+@app.route('/api/payment/webhook', methods=['POST'])
+def payment_webhook():
+    """Handle LemonSqueezy webhook for payment confirmation"""
+    try:
+        payload = request.json
+        
+        # Verify webhook signature (if configured)
+        # signature = request.headers.get('X-Signature')
+        # TODO: Implement signature verification for production
+        
+        event_name = payload.get('meta', {}).get('event_name')
+        
+        if event_name == 'order_created':
+            # Extract order data
+            order_data = payload.get('data', {})
+            attributes = order_data.get('attributes', {})
+            custom_data = attributes.get('first_order_item', {}).get('product_id')
+            
+            # Get Discord ID from custom data
+            discord_id = payload.get('meta', {}).get('custom_data', {}).get('discord_id')
+            
+            if discord_id:
+                logger.info(f"Payment received for Discord ID: {discord_id}")
+                
+                # TODO: Store payment in database
+                # TODO: Generate Discord invite link
+                # TODO: Send invite to user's email or Discord DM
+                
+                # For now, just log it
+                logger.info(f"Order #{attributes.get('order_number')} - ${attributes.get('total')/100} - User: {discord_id}")
+                
+                return jsonify({'success': True, 'message': 'Webhook received'}), 200
+            else:
+                logger.warning("Webhook received but no Discord ID found")
+                return jsonify({'error': 'Invalid webhook data'}), 400
+        
+        # Acknowledge other webhook events
+        return jsonify({'success': True}), 200
+        
+    except Exception as e:
+        logger.error(f"Webhook error: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Webhook processing failed'}), 500
+
 @app.route('/robots.txt')
 def robots_txt():
     """Serve robots.txt file"""
@@ -578,7 +961,7 @@ def security_txt():
     return send_file('static/.well-known/security.txt', mimetype='text/plain')
 
 @app.route('/api/scan', methods=['POST'])
-@login_required
+@guild_required
 @csrf_protected
 def start_scan():
     """Start a new security scan (requires authentication)"""
@@ -654,14 +1037,14 @@ def download_report(scan_id):
                     download_name=f'security_report_{scan_id}.html')
 
 @app.route('/api/scans', methods=['GET'])
-@login_required
+@guild_required
 def list_user_scans():
     """List current user's scan history from database"""
     scans = ScanManager.get_user_scans(g.user_id, limit=50)
     return jsonify(scans)
 
 @app.route('/api/scans/<scan_id>', methods=['GET'])
-@login_required
+@guild_required
 def get_scan_from_history(scan_id):
     """Get specific scan from user's history"""
     scan = ScanManager.get_scan_details(scan_id, g.user_id)

@@ -175,6 +175,29 @@
         </footer>
     </div>
 
+    <!-- Access Denied Modal -->
+    <div id="accessDeniedModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🔒 Access Restricted</h2>
+            </div>
+            <div class="modal-body">
+                <p>To use this platform, you must be a member of our exclusive Discord server.</p>
+                <p><strong>What you get:</strong></p>
+                <ul>
+                    <li>✓ Unlimited security scans</li>
+                    <li>✓ Advanced vulnerability reports</li>
+                    <li>✓ Exclusive Discord community</li>
+                    <li>✓ Priority support</li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <a href="/pay" class="btn-primary">Get Access Now</a>
+                <button id="closeModalBtn" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

@@ -178,7 +178,7 @@ body {
     border: 1px solid rgba(239, 68, 68, 0.3);
     padding: 12px 16px;
     border-radius: 8px;
-    margin-bottom: 16px;
+    margin-bottom: 28px;
     font-size: 14px;
     display: none;
     animation: shake 0.4s ease;
@@ -194,7 +194,7 @@ body {
     border: 1px solid rgba(16, 185, 129, 0.3);
     padding: 12px 16px;
     border-radius: 8px;
-    margin-bottom: 16px;
+    margin-bottom: 28px;
     font-size: 14px;
     display: none;
 }
@@ -212,7 +212,8 @@ body {
 .btn-primary {
     width: 100%;
     padding: 16px;
-    background: var(--accent-gradient);
+    margin-top: 0;
+    background: linear-gradient(135deg, #4a4a5e 0%, #2d2d3d 100%);
     color: white;
     border: none;
     border-radius: 12px;
@@ -223,9 +224,9 @@ body {
     position: relative;
     overflow: hidden;
     box-shadow: 
-        0 4px 14px rgba(102, 126, 234, 0.4),
+        0 4px 14px rgba(0, 0, 0, 0.3),
         0 2px 4px rgba(0, 0, 0, 0.2),
-        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .btn-primary::before {
@@ -246,16 +247,16 @@ body {
 .btn-primary:hover {
     transform: translateY(-2px) scale(1.01);
     box-shadow: 
-        0 8px 25px rgba(102, 126, 234, 0.5),
+        0 8px 25px rgba(0, 0, 0, 0.5),
         0 4px 10px rgba(0, 0, 0, 0.3),
-        inset 0 1px 0 rgba(255, 255, 255, 0.3),
-        0 0 20px rgba(102, 126, 234, 0.3);
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        0 0 20px rgba(74, 74, 94, 0.4);
 }
 
 .btn-primary:active {
     transform: translateY(0) scale(0.99);
     box-shadow: 
-        0 2px 8px rgba(102, 126, 234, 0.3),
+        0 2px 8px rgba(0, 0, 0, 0.3),
         inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
@@ -263,6 +264,22 @@ body {
     opacity: 0.6;
     cursor: not-allowed;
     transform: none;
+}
+
+/* Discord Button */
+.discord-btn {
+    background: linear-gradient(135deg, #4a4a5e 0%, #2d2d3d 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.discord-btn:hover {
+    box-shadow: 
+        0 8px 25px rgba(0, 0, 0, 0.5),
+        0 4px 10px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        0 0 20px rgba(74, 74, 94, 0.4);
 }
 
 .btn-loader {
@@ -305,6 +322,126 @@ body {
     color: var(--accent-hover);
 }
 
+/* Paid Service Notice */
+.paid-notice {
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 12px;
+    padding: 24px 20px 28px 20px;
+    margin-bottom: 48px;
+    text-align: center;
+}
+
+.paid-notice .notice-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.paid-notice .payment-icon {
+    color: var(--accent-primary);
+    flex-shrink: 0;
+}
+
+.paid-notice strong {
+    display: inline-block;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.paid-notice p {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 0;
+    line-height: 1.6;
+}
+
+.paid-notice .notice-text {
+    margin-bottom: 16px;
+}
+
+.paid-notice .notice-text-last {
+    margin-bottom: 0;
+}
+
+.paid-notice a {
+    color: var(--accent-primary);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s ease;
+}
+
+.paid-notice a:hover {
+    text-decoration: underline;
+    color: var(--accent-hover);
+}
+
+/* Discord Icon Spacing */
+.discord-icon {
+    margin-right: 12px;
+}
+
+/* Auth Footer */
+.auth-footer {
+    text-align: center;
+    padding-top: 28px;
+    border-top: 1px solid var(--border-color);
+    margin-top: 32px;
+}
+
+.auth-footer p {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 12px 0;
+    line-height: 1.5;
+}
+
+.auth-footer a {
+    color: var(--accent-primary);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s ease;
+}
+
+.auth-footer a:hover {
+    text-decoration: underline;
+    color: var(--accent-hover);
+}
+
+/* Legal Links */
+.legal-links {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.legal-links a {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.legal-links a:hover {
+    color: var(--accent-primary);
+}
+
+/* New User / Existing User Text */
+.new-user-text,
+.existing-user-text {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* Agreement Text */
+.agreement-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 8px;
+}
+
 /* Responsive */
 @media (max-width: 480px) {
     .auth-box {
@@ -318,4 +455,22 @@ body {
     .logo {
         font-size: 48px;
     }
+    
+    .paid-notice {
+        padding: 12px;
+    }
+    
+    .paid-notice strong {
+        font-size: 14px;
+    }
+    
+    .paid-notice p {
+        font-size: 12px;
+    }
+}
+
+/* Contact info links (denied page) */
+.contact-info a {
+    color: var(--text-primary);
+    text-decoration: underline;
 }

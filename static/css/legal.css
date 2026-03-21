@@ -151,6 +151,10 @@ body {
     border-radius: 8px;
 }
 
+.info-box-summary {
+    margin-top: 40px;
+}
+
 .info-box strong {
     color: #3b82f6;
 }

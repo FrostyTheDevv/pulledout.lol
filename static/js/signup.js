@@ -1,43 +1,14 @@
-have// Signup Page JavaScript
+// Signup Page JavaScript - Discord OAuth
 
-// Get CSRF token from meta tag
-function getCSRFToken() {
-    const meta = document.querySelector('meta[name="csrf-token"]');
-    return meta ? meta.getAttribute('content') : '';
-}
-
-document.getElementById('signupForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value;
-    const confirmPassword = document.getElementById('confirmPassword').value;
-    const termsChecked = document.getElementById('termsCheckbox').checked;
+document.getElementById('discordSignupBtn').addEventListener('click', async () => {
     const errorDiv = document.getElementById('errorMessage');
-    const successDiv = document.getElementById('successMessage');
-    const signupBtn = document.getElementById('signupBtn');
+    const signupBtn = document.getElementById('discordSignupBtn');
     const btnText = signupBtn.querySelector('.btn-text');
     const btnLoader = signupBtn.querySelector('.btn-loader');
     
-    // Hide previous messages
+    // Hide previous errors
     errorDiv.classList.remove('show');
-    successDiv.classList.remove('show');
     errorDiv.textContent = '';
-    successDiv.textContent = '';
-    
-    // Validate password match
-    if (password !== confirmPassword) {
-        errorDiv.textContent = 'Passwords do not match';
-        errorDiv.classList.add('show');
-        return;
-    }
-    
-    // Validate terms
-    if (!termsChecked) {
-        errorDiv.textContent = 'Please agree to the Terms of Service';
-        errorDiv.classList.add('show');
-        return;
-    }
     
     // Disable button
     signupBtn.disabled = true;
@@ -45,29 +16,15 @@ document.getElementById('signupForm').addEventListener('submit', async (e) => {
     btnLoader.classList.remove('hidden');
     
     try {
-        const response = await fetch('/api/auth/signup', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': getCSRFToken()
-            },
-            body: JSON.stringify({ username, password })
-        });
-        
+        // Get Discord OAuth URL from backend (same endpoint as login)
+        const response = await fetch('/api/auth/discord/login');
         const data = await response.json();
         
-        if (response.ok && data.success) {
-            // Show success message
-            successDiv.textContent = 'Account created! Redirecting to login...';
-            successDiv.classList.add('show');
-            
-            // Redirect to login after 2 seconds
-            setTimeout(() => {
-                window.location.href = '/login';
-            }, 2000);
+        if (response.ok && data.auth_url) {
+            // Redirect to Discord OAuth page
+            window.location.href = data.auth_url;
         } else {
-            // Show error
-            errorDiv.textContent = data.error || 'Signup failed';
+            errorDiv.textContent = data.error || 'Discord signup unavailable';
             errorDiv.classList.add('show');
             
             // Re-enable button
@@ -83,22 +40,5 @@ document.getElementById('signupForm').addEventListener('submit', async (e) => {
         signupBtn.disabled = false;
         btnText.classList.remove('hidden');
         btnLoader.classList.add('hidden');
-    }
-});
-
-// Auto-focus username field
-document.getElementById('username').focus();
-
-// Password match indicator
-document.getElementById('confirmPassword').addEventListener('input', function() {
-    const password = document.getElementById('password').value;
-    const confirmPassword = this.value;
-    
-    if (confirmPassword && password !== confirmPassword) {
-        this.style.borderColor = '#fc8181';
-    } else if (confirmPassword) {
-        this.style.borderColor = '#68d391';
-    } else {
-        this.style.borderColor = '#e2e8f0';
     }
 });

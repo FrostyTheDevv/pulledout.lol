@@ -15,17 +15,80 @@ let sessionToken = localStorage.getItem('sessionToken');
 let currentUsername = localStorage.getItem('username');
 
 // Check authentication on page load
-function checkAuth() {
+async function checkAuth() {
     if (sessionToken && currentUsername) {
         // Show user greeting
         document.getElementById('userGreeting').classList.remove('hidden');
         document.getElementById('usernameDisplay').textContent = currentUsername;
         document.getElementById('logoutBtn').classList.remove('hidden');
         document.getElementById('loginBtn').classList.add('hidden');
+        
+        // Check guild membership
+        await checkGuildAccess();
     } else {
         // Redirect to login
         window.location.href = '/login';
     }
+}
+
+// Check guild access
+async function checkGuildAccess() {
+    try {
+        const response = await fetch(`${API_BASE}/api/auth/check-access`, {
+            headers: {
+                'Authorization': sessionToken
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (!data.has_access) {
+                // Check if user is denied (M.U role)
+                if (data.is_denied) {
+                    // Redirect to denied page
+                    window.location.href = '/denied';
+                    return;
+                }
+                // Show access denied modal for users who need to purchase
+                showAccessDeniedModal();
+                // Disable scan form
+                disableScanForm();
+            }
+        } else if (response.status === 401) {
+            handleAuthError();
+        }
+    } catch (error) {
+        console.error('Error checking guild access:', error);
+    }
+}
+
+// Show access denied modal
+function showAccessDeniedModal() {
+    const modal = document.getElementById('accessDeniedModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
+// Close modal
+function closeAccessDeniedModal() {
+    const modal = document.getElementById('accessDeniedModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+// Disable scan form
+function disableScanForm() {
+    const scanForm = document.getElementById('scanForm');
+    const scanButton = document.getElementById('scanButton');
+    const targetUrl = document.getElementById('targetUrl');
+    const maxPages = document.getElementById('maxPages');
+    
+    if (scanForm) scanForm.style.opacity = '0.5';
+    if (scanButton) scanButton.disabled = true;
+    if (targetUrl) targetUrl.disabled = true;
+    if (maxPages) maxPages.disabled = true;
 }
 
 // Handle authentication errors
@@ -99,6 +162,9 @@ document.addEventListener('DOMContentLoaded', function() {
         window.location.href = '/login';
     });
     
+    // Set up access modal close button
+    document.getElementById('closeModalBtn')?.addEventListener('click', closeAccessDeniedModal);
+    
     // Load recent scans
     loadRecentScans();
     
@@ -161,8 +227,22 @@ async function handleScanSubmit(event) {
             return;
         }
         
+        if (response.status === 403) {
+            const errorData = await response.json();
+            if (errorData.requires_guild) {
+                // Show access denied modal
+                showAccessDeniedModal();
+                // Disable scan form
+                disableScanForm();
+            } else {
+                showError(errorData.error || 'Access denied');
+            }
+            return;
+        }
+        
         if (!response.ok) {
-            throw new Error('Failed to start scan');
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Failed to start scan');
         }
         
         const data = await response.json();

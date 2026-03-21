@@ -1,18 +1,8 @@
-// Login Page JavaScript
+// Login Page JavaScript - Discord OAuth
 
-// Get CSRF token from meta tag
-function getCSRFToken() {
-    const meta = document.querySelector('meta[name="csrf-token"]');
-    return meta ? meta.getAttribute('content') : '';
-}
-
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value;
+document.getElementById('discordLoginBtn').addEventListener('click', async () => {
     const errorDiv = document.getElementById('errorMessage');
-    const loginBtn = document.getElementById('loginBtn');
+    const loginBtn = document.getElementById('discordLoginBtn');
     const btnText = loginBtn.querySelector('.btn-text');
     const btnLoader = loginBtn.querySelector('.btn-loader');
     
@@ -26,39 +16,29 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     btnLoader.classList.remove('hidden');
     
     try {
-        const response = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': getCSRFToken()
-            },
-            body: JSON.stringify({ username, password })
-        });
-        
+        // Get Discord OAuth URL from backend
+        const response = await fetch('/api/auth/discord/login');
         const data = await response.json();
         
-        if (response.ok && data.success) {
-            // Store session token
-            localStorage.setItem('sessionToken', data.session_token);
-            localStorage.setItem('username', data.username);
-            
-            // Redirect to dashboard
-            window.location.href = '/';
+        if (response.ok && data.auth_url) {
+            // Redirect to Discord OAuth page
+            window.location.href = data.auth_url;
         } else {
-            // Show error
-            errorDiv.textContent = data.error || 'Login failed';
+            errorDiv.textContent = data.error || 'Discord login unavailable';
             errorDiv.classList.add('show');
+            
+            // Re-enable button
+            loginBtn.disabled = false;
+            btnText.classList.remove('hidden');
+            btnLoader.classList.add('hidden');
         }
     } catch (error) {
         errorDiv.textContent = 'Network error. Please try again.';
         errorDiv.classList.add('show');
-    } finally {
+        
         // Re-enable button
         loginBtn.disabled = false;
         btnText.classList.remove('hidden');
         btnLoader.classList.add('hidden');
     }
 });
-
-// Auto-focus username field
-document.getElementById('username').focus();
