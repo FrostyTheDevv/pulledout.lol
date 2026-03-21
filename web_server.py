@@ -626,11 +626,15 @@ def get_scan_results(scan_id):
     
     # Convert datetime objects to strings for JSON serialization
     results_copy = results.copy()
-    results_copy['scan_time'] = results['scan_time'].isoformat()
     
-    # Convert finding timestamps
+    # Only convert scan_time if it's a datetime object
+    if hasattr(results['scan_time'], 'isoformat'):
+        results_copy['scan_time'] = results['scan_time'].isoformat()
+    
+    # Convert finding timestamps (only if datetime objects)
     for finding in results_copy['findings']:
-        finding['timestamp'] = finding['timestamp'].isoformat()
+        if hasattr(finding['timestamp'], 'isoformat'):
+            finding['timestamp'] = finding['timestamp'].isoformat()
     
     return jsonify(results_copy)
 
