@@ -1,18 +1,10 @@
 // ==================== AUTHENTICATION ====================
-// Get CSRF token from meta tag or hidden form input
+// Get CSRF token from meta tag
 function getCSRFToken() {
-    // Try meta tag first
     const meta = document.querySelector('meta[name="csrf-token"]');
     if (meta) {
         const token = meta.getAttribute('content');
         console.log('CSRF Token from meta:', token);
-        return token;
-    }
-    // Fallback to hidden input in form
-    const input = document.querySelector('input[name="csrf_token"]');
-    if (input) {
-        const token = input.value;
-        console.log('CSRF Token from input:', token);
         return token;
     }
     console.log('No CSRF token found');

@@ -34,7 +34,6 @@
             </div>
             
             <form id="loginForm" class="auth-form" method="POST" action="/api/auth/login" autocomplete="on">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username">

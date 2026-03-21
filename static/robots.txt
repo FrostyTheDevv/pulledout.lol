@@ -1,7 +1,6 @@
 # robots.txt for PULLEDOUT.LOL
 User-agent: *
 Allow: /
-Disallow: /api/
 
 # Sitemap
 Sitemap: https://pulledout.lol/sitemap.xml

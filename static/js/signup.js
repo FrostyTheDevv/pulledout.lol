@@ -1,11 +1,7 @@
 // Signup Page JavaScript
 
-// Get CSRF token from hidden input or meta tag
+// Get CSRF token from meta tag
 function getCSRFToken() {
-    // Try hidden input first
-    const input = document.querySelector('input[name="csrf_token"]');
-    if (input) return input.value;
-    // Fallback to meta tag
     const meta = document.querySelector('meta[name="csrf-token"]');
     return meta ? meta.getAttribute('content') : '';
 }
