@@ -59,10 +59,12 @@ Compress(app)
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Session configuration
-app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+# Session configuration - auto-detect production HTTPS
+is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
+app.config['SESSION_COOKIE_SECURE'] = is_production  # True in production (HTTPS), False in dev
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_PATH'] = '/'
 
 # Database configuration with Railway support
 # Railway provides DATABASE_URL for PostgreSQL
