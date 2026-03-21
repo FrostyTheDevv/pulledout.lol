@@ -195,24 +195,58 @@ def ultra_granular_header_scan(scanner):
         is_hosted_service = False
         hosting_service_name = None
         
-        # Check URL for hosting provider patterns
+        # Check URL for hosting provider patterns (for *.provider.app domains)
         for provider, patterns in hosting_providers.items():
             for pattern in patterns:
                 if pattern in scanner.target_url.lower():
                     is_hosted_service = True
                     hosting_service_name = provider.capitalize()
                     break
-                # Check headers for provider signatures
-                if 'cf-ray' in headers and provider == 'cloudflare':
-                    is_hosted_service = True
-                    hosting_service_name = 'Cloudflare Pages'
-                    break
-                if 'x-vercel-id' in headers and provider == 'vercel':
-                    is_hosted_service = True
-                    hosting_service_name = 'Vercel'
-                    break
             if is_hosted_service:
                 break
+        
+        # Check headers for provider signatures (works with custom domains)
+        if not is_hosted_service:
+            # Railway detection
+            if 'server' in headers and 'nginx' in headers['server'].lower():
+                # Railway typically uses nginx as reverse proxy
+                # Check for Railway-specific patterns or if it's a simple "nginx" value
+                server_value = headers['server'].lower()
+                if server_value == 'nginx' or 'railway' in server_value:
+                    # Additional Railway indicators
+                    railway_indicators = ['x-railway-id', 'railway-static-ip']
+                    for indicator in railway_indicators:
+                        if indicator in headers:
+                            is_hosted_service = True
+                            hosting_service_name = 'Railway'
+                            break
+                    
+                    # If server header is just "nginx" with no version, likely a managed service
+                    if not is_hosted_service and server_value == 'nginx':
+                        # Heuristic: If it's HTTPS with just "nginx" header, likely Railway/managed service
+                        if scanner.target_url.startswith('https://'):
+                            is_hosted_service = True
+                            hosting_service_name = 'Managed Hosting Service (likely Railway/Vercel/Render)'
+            
+            # Cloudflare detection (works with any domain behind CF)
+            if 'cf-ray' in headers or 'cf-cache-status' in headers:
+                is_hosted_service = True
+                hosting_service_name = 'Cloudflare'
+            
+            # Vercel detection
+            if 'x-vercel-id' in headers or 'x-vercel-cache' in headers:
+                is_hosted_service = True
+                hosting_service_name = 'Vercel'
+            
+            # Netlify detection
+            if 'x-nf-request-id' in headers:
+                is_hosted_service = True
+                hosting_service_name = 'Netlify'
+            
+            # Heroku detection
+            if 'x-heroku-queue-wait-time' in headers:
+                is_hosted_service = True
+                hosting_service_name = 'Heroku'
         
         # Add INFO finding about hosting detection
         if is_hosted_service and hosting_service_name:
@@ -220,7 +254,7 @@ def ultra_granular_header_scan(scanner):
                 severity='INFO',
                 category='Discovery / Hygiene',
                 title=f'Hosted on {hosting_service_name}',
-                description=f'Site is deployed on {hosting_service_name} infrastructure. Some headers are managed by the hosting provider.',
+                description=f'Site is deployed on {hosting_service_name} infrastructure. Some headers (like "server") are managed by the hosting provider and cannot be modified at the application level.',
                 url=scanner.target_url,
                 remediation='Infrastructure headers are managed by hosting provider and cannot be modified'
             )
