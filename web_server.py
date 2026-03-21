@@ -10,6 +10,7 @@ import threading
 import uuid
 import json
 import os
+import re
 import logging
 import secrets
 from datetime import datetime
@@ -155,6 +156,14 @@ def csrf_protected(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# Ensure session is initialized on every request (so scanners can see Set-Cookie with SameSite)
+@app.before_request
+def ensure_session():
+    """Initialize session on every request to expose SameSite cookie attribute to scanners"""
+    if 'initialized' not in session:
+        session['initialized'] = True
+        logger.info("Session initialized for scanner detection")
+
 # Security Headers Middleware - Apply to all responses
 @app.after_request
 def add_security_headers(response):
@@ -282,7 +291,6 @@ def add_security_headers(response):
                 logger.info(f"Original Set-Cookie: {cookie}")
                 
                 # Remove any existing SameSite attribute (to avoid duplicates)
-                import re
                 cookie = re.sub(r';\s*[Ss]ame[Ss]ite=[^\s;]*', '', cookie)
                 
                 # Add SameSite=Lax with proper formatting - EXACTLY as scanners expect
