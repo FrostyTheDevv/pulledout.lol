@@ -93,6 +93,7 @@ def generate_html_report(results, output_file='security_report.html'):
             font-weight: 600;
         }}
         
+        .badge-critical {{ color: #b91c1c; font-weight: 700; }}
         .badge-high {{ color: #dc3545; }}
         .badge-medium {{ color: #fd7e14; }}
         .badge-low {{ color: #ffc107; }}
@@ -184,6 +185,7 @@ def generate_html_report(results, output_file='security_report.html'):
             font-size: 12px;
         }}
         
+        .severity.CRITICAL {{ color: #b91c1c; font-weight: 700; }}
         .severity.HIGH {{ color: #dc3545; }}
         .severity.MEDIUM {{ color: #fd7e14; }}
         .severity.LOW {{ color: #ffc107; }}
@@ -264,6 +266,7 @@ def generate_html_report(results, output_file='security_report.html'):
         
         <!-- Summary Badges -->
         <div class="summary-badges">
+            <span class="badge-critical">CRITICAL: {findings_summary.get('CRITICAL', 0)}</span>
             <span class="badge-high">HIGH: {findings_summary['HIGH']}</span>
             <span class="badge-medium">MEDIUM: {findings_summary['MEDIUM']}</span>
             <span class="badge-low">LOW: {findings_summary['LOW']}</span>

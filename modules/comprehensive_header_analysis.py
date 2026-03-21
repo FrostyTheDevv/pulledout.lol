@@ -179,6 +179,52 @@ def ultra_granular_header_scan(scanner):
                     )
         
         # Server fingerprinting - each header that leaks info
+        # Detect hosting providers and exclude their infrastructure headers
+        hosting_providers = {
+            'railway': ['railway.app', 'railway'],
+            'vercel': ['vercel.app', 'vercel', 'now.sh'],  
+            'netlify': ['netlify.app', 'netlify'],
+            'heroku': ['herokuapp.com', 'heroku'],
+            'render': ['render.com', 'onrender.com'],
+            'fly': ['fly.dev', 'fly.io'],
+            'cloudflare': ['cloudflare', 'cf-ray'],
+            'replit': ['replit.dev', 'repl.co', 'replit.app']
+        }
+        
+        # Check if site is on a known hosting provider
+        is_hosted_service = False
+        hosting_service_name = None
+        
+        # Check URL for hosting provider patterns
+        for provider, patterns in hosting_providers.items():
+            for pattern in patterns:
+                if pattern in scanner.target_url.lower():
+                    is_hosted_service = True
+                    hosting_service_name = provider.capitalize()
+                    break
+                # Check headers for provider signatures
+                if 'cf-ray' in headers and provider == 'cloudflare':
+                    is_hosted_service = True
+                    hosting_service_name = 'Cloudflare Pages'
+                    break
+                if 'x-vercel-id' in headers and provider == 'vercel':
+                    is_hosted_service = True
+                    hosting_service_name = 'Vercel'
+                    break
+            if is_hosted_service:
+                break
+        
+        # Add INFO finding about hosting detection
+        if is_hosted_service and hosting_service_name:
+            scanner.add_finding(
+                severity='INFO',
+                category='Discovery / Hygiene',
+                title=f'Hosted on {hosting_service_name}',
+                description=f'Site is deployed on {hosting_service_name} infrastructure. Some headers are managed by the hosting provider.',
+                url=scanner.target_url,
+                remediation='Infrastructure headers are managed by hosting provider and cannot be modified'
+            )
+        
         critical_info_leaks = ['x-powered-by', 'x-aspnet-version', 'x-aspnetmvc-version', 'x-generator']
         minor_info_leaks = ['server', 'x-drupal-cache', 'x-varnish', 'via']
         
@@ -193,15 +239,21 @@ def ultra_granular_header_scan(scanner):
                     remediation=f'Remove {header} header'
                 )
         
+        # Only flag server header if NOT on a managed hosting provider
         for header in minor_info_leaks:
             if header in headers:
+                # Skip server header if it's from a known hosting provider
+                if header == 'server' and is_hosted_service:
+                    # Don't flag this - it's infrastructure-level
+                    continue
+                    
                 scanner.add_finding(
                     severity='LOW',
                     category='Information Disclosure',
                     title=f'{header} header exposes technology',
                     description=f'{header}: {headers[header]}',
                     url=scanner.target_url,
-                    remediation=f'Remove {header} header'
+                    remediation=f'Remove {header} header from application server'
                 )
         
         # Cache-Control directives

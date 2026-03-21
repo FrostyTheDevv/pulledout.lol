@@ -276,32 +276,44 @@ class SecurityScanner:
         })
         
     def get_risk_score(self) -> Tuple[int, str]:
-        """Calculate risk score based on findings"""
+        """
+        Calculate risk score based on findings
+        OWASP-aligned risk scoring:
+        - CRITICAL: Immediate exploitation, severe impact
+        - HIGH: Easy exploitation, significant impact  
+        - MEDIUM: Moderate difficulty, moderate impact
+        - LOW: Difficult or low impact
+        - INFO: Informational only
+        """
         score = 0
         severity_weights = {
-            'HIGH': 25,
-            'MEDIUM': 5,
-            'LOW': 1,
-            'INFO': 0
+            'CRITICAL': 50,  # e.g., RCE, SQLi, Auth bypass
+            'HIGH': 25,      # e.g., XSS, CSRF, exposed secrets
+            'MEDIUM': 5,     # e.g., Missing headers, config issues
+            'LOW': 1,        # e.g., Version disclosure, minor leaks
+            'INFO': 0        # e.g., Best practices, recommendations
         }
         
         for finding in self.findings:
             score += severity_weights.get(finding['severity'], 0)
-            
-        if score >= 150:
-            risk_level = "Critical"
+        
+        # OWASP Risk Rating thresholds
+        if score >= 200:
+            risk_level = "Critical"  # 4+ CRITICAL or 8+ HIGH
         elif score >= 100:
-            risk_level = "High"
+            risk_level = "High"      # 2+ CRITICAL or 4+ HIGH
         elif score >= 50:
-            risk_level = "Medium"
+            risk_level = "Medium"     # 1 CRITICAL or 2 HIGH or 10 MEDIUM
+        elif score >= 10:
+            risk_level = "Low"        # 2+ MEDIUM or 10+ LOW
         else:
-            risk_level = "Low"
+            risk_level = "Minimal"    # Only INFO findings
             
         return score, risk_level
     
     def get_findings_summary(self) -> Dict[str, int]:
         """Get count of findings by severity"""
-        summary = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'INFO': 0}
+        summary = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'INFO': 0}
         for finding in self.findings:
             severity = finding['severity']
             if severity in summary:
