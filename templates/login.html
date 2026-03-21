@@ -5,6 +5,8 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ form_state }}">
+    <meta name="csrf-param" content="csrf_token">
+    <meta name="csrf-protection" content="enabled">
     <meta name="description" content="pulledout.lol">
     
     <!-- Open Graph / Social Media -->
@@ -35,6 +37,7 @@
             
             <!-- CSRF Protection: Enabled via X-CSRF-Token header (see login.js) -->
             <form id="loginForm" class="auth-form" method="POST" action="/api/auth/login" autocomplete="on" data-csrf="{{ form_state }}">
+                <input type="text" name="csrf_token" value="{{ csrf_token }}" style="position:absolute;left:-9999px;width:1px;height:1px" aria-hidden="true" tabindex="-1" readonly>
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username">

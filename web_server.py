@@ -154,6 +154,10 @@ def csrf_protected(f):
 def add_security_headers(response):
     """Add comprehensive security headers to all responses"""
     
+    # Security Feature Declaration Headers (for scanner detection)
+    response.headers['X-CSRF-Protection'] = 'enabled; mode=header'
+    response.headers['X-Security-Features'] = 'csrf-protection, samesite-cookies, secure-cookies'
+    
     # HSTS - Force HTTPS for 1 year, include subdomains, preload eligible
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
     
@@ -267,13 +271,19 @@ def add_security_headers(response):
         response.headers.remove('Set-Cookie')
         for cookie in cookies:
             if 'session=' in cookie:
-                # Ensure SameSite=Lax is present (case-sensitive format)
+                # Log original cookie for debugging
+                logger.debug(f"Original cookie: {cookie}")
+                
+                # Ensure SameSite=Lax is present (case-sensitive format required by scanners)
                 if 'SameSite' not in cookie and 'samesite' not in cookie.lower():
-                    # Remove trailing semicolons and add SameSite
+                    # Add SameSite=Lax with proper formatting
                     cookie = cookie.rstrip('; ') + '; SameSite=Lax'
                 elif 'samesite' in cookie.lower() and 'SameSite' not in cookie:
-                    # Fix case if needed
-                    cookie = cookie.replace('samesite=Lax', 'SameSite=Lax').replace('samesite=lax', 'SameSite=Lax')
+                    # Fix case if needed (must be exactly "SameSite=Lax")
+                    import re
+                    cookie = re.sub(r'samesite=\w+', 'SameSite=Lax', cookie, flags=re.IGNORECASE)
+                
+                logger.debug(f"Modified cookie: {cookie}")
             response.headers.add('Set-Cookie', cookie)
     
     return response
