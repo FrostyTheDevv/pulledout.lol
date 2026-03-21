@@ -277,9 +277,30 @@ def ultra_granular_header_scan(scanner):
         for header in minor_info_leaks:
             if header in headers:
                 # Skip server header if it's from a known hosting provider
-                if header == 'server' and is_hosted_service:
-                    # Don't flag this - it's infrastructure-level
-                    continue
+                if header == 'server':
+                    # Check if managed hosting detected
+                    if is_hosted_service:
+                        continue
+                    
+                    # Additional heuristics: Skip generic nginx/cloud infrastructure headers
+                    server_value = headers['server'].lower()
+                    
+                    # Skip plain "nginx" or "nginx/version" - almost always managed infrastructure
+                    if server_value == 'nginx' or server_value.startswith('nginx/'):
+                        # This is managed infrastructure, add INFO instead of LOW
+                        scanner.add_finding(
+                            severity='INFO',
+                            category='Discovery / Hygiene',
+                            title='Infrastructure server header detected',
+                            description=f'Server header "{headers["server"]}" indicates managed infrastructure (Railway/Vercel/Render/etc). This header is set by the hosting provider and cannot be modified at the application level.',
+                            url=scanner.target_url,
+                            remediation='No action needed - infrastructure-level header managed by hosting provider'
+                        )
+                        continue
+                    
+                    # Skip cloudflare-nginx (Cloudflare)
+                    if 'cloudflare' in server_value:
+                        continue
                     
                 scanner.add_finding(
                     severity='LOW',
