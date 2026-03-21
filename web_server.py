@@ -157,13 +157,16 @@ def csrf_protected(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Ensure session is initialized on every request (so scanners can see Set-Cookie with SameSite)
+# Ensure session is modified on EVERY request (forces Set-Cookie header for scanner detection)
 @app.before_request
 def ensure_session():
-    """Initialize session on every request to expose SameSite cookie attribute to scanners"""
+    """Modify session on every request to expose SameSite cookie attribute to scanners"""
+    # Update timestamp to force session modification and Set-Cookie header
+    import time
+    session['_last_request'] = int(time.time())
     if 'initialized' not in session:
         session['initialized'] = True
-        logger.info("Session initialized for scanner detection")
+        logger.info("Session initialized")
 
 # Security Headers Middleware - Apply to all responses
 @app.after_request
