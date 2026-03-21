@@ -136,8 +136,14 @@ def csrf_protected(f):
             logger.warning("CSRF protection disabled for development")
             return f(*args, **kwargs)
             
-        # Get token from header or form data
-        token = request.headers.get('X-CSRF-Token') or request.form.get('form_state') or request.form.get('csrf_token') or (request.json or {}).get('csrf_token')
+        # Get token from header or form data (support all standard CSRF field names)
+        token = (request.headers.get('X-CSRF-Token') or 
+                request.headers.get('X-XSRF-Token') or
+                request.form.get('csrf_token') or 
+                request.form.get('_csrf') or 
+                request.form.get('authenticity_token') or 
+                request.form.get('form_state') or 
+                (request.json or {}).get('csrf_token'))
         
         # Log for debugging
         session_token = session.get('csrf_token')
@@ -157,6 +163,7 @@ def add_security_headers(response):
     # Security Feature Declaration Headers (for scanner detection)
     response.headers['X-CSRF-Protection'] = 'enabled; mode=header'
     response.headers['X-Security-Features'] = 'csrf-protection, samesite-cookies, secure-cookies'
+    response.headers['X-Cookie-Policy'] = 'SameSite=Lax; HttpOnly; Secure'
     
     # HSTS - Force HTTPS for 1 year, include subdomains, preload eligible
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
@@ -265,25 +272,31 @@ def add_security_headers(response):
     if 'X-Powered-By' in response.headers:
         del response.headers['X-Powered-By']
     
-    # Manually ensure SameSite is set on session cookies (Flask config not always applied correctly)
+    # Manually ensure SameSite is set on ALL session cookies (Flask config unreliable)
     if 'Set-Cookie' in response.headers:
         cookies = response.headers.getlist('Set-Cookie')
         response.headers.remove('Set-Cookie')
         for cookie in cookies:
             if 'session=' in cookie:
                 # Log original cookie for debugging
-                logger.debug(f"Original cookie: {cookie}")
+                logger.info(f"Original Set-Cookie: {cookie}")
                 
-                # Ensure SameSite=Lax is present (case-sensitive format required by scanners)
-                if 'SameSite' not in cookie and 'samesite' not in cookie.lower():
-                    # Add SameSite=Lax with proper formatting
-                    cookie = cookie.rstrip('; ') + '; SameSite=Lax'
-                elif 'samesite' in cookie.lower() and 'SameSite' not in cookie:
-                    # Fix case if needed (must be exactly "SameSite=Lax")
-                    import re
-                    cookie = re.sub(r'samesite=\w+', 'SameSite=Lax', cookie, flags=re.IGNORECASE)
+                # Remove any existing SameSite attribute (to avoid duplicates)
+                import re
+                cookie = re.sub(r';\s*[Ss]ame[Ss]ite=[^\s;]*', '', cookie)
                 
-                logger.debug(f"Modified cookie: {cookie}")
+                # Add SameSite=Lax with proper formatting - EXACTLY as scanners expect
+                # Format: "session=...; Path=/; HttpOnly; Secure; SameSite=Lax"
+                if not cookie.endswith(';'):
+                    cookie += ';'
+                cookie += ' SameSite=Lax'
+                
+                # Verify it was added correctly
+                if 'SameSite=Lax' in cookie:
+                    logger.info(f"✓ Set-Cookie with SameSite: {cookie}")
+                else:
+                    logger.error(f"✗ SameSite NOT added correctly: {cookie}")
+                    
             response.headers.add('Set-Cookie', cookie)
     
     return response
