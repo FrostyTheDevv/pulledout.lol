@@ -35,9 +35,12 @@ class RemoveServerHeaderMiddleware:
 
     def __call__(self, environ, start_response):
         def custom_start_response(status, headers, exc_info=None):
-            # Remove Server header
-            headers = [(name, value) for name, value in headers if name.lower() != 'server']
-            return start_response(status, headers, exc_info)
+            # Remove all variations of Server header
+            filtered_headers = []
+            for name, value in headers:
+                if name.lower() not in ('server', 'x-powered-by'):
+                    filtered_headers.append((name, value))
+            return start_response(status, filtered_headers, exc_info)
         return self.app(environ, custom_start_response)
 
 # Load environment variables from .env file
@@ -247,21 +250,13 @@ def add_security_headers(response):
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
     
-    # Remove server header
+    # Remove server header completely - multiple attempts for different sources
     response.headers.pop('Server', None)
-    
-    # Manually ensure SameSite is set on session cookies (Flask bug workaround)
-    if 'Set-Cookie' in response.headers:
-        cookies = response.headers.getlist('Set-Cookie')
-        response.headers.remove('Set-Cookie')
-        for cookie in cookies:
-            if 'session=' in cookie and 'SameSite' not in cookie:
-                # Add SameSite=Lax if not present
-                if cookie.endswith(';'):
-                    cookie = cookie + ' SameSite=Lax'
-                else:
-                    cookie = cookie + '; SameSite=Lax'
-            response.headers.add('Set-Cookie', cookie)
+    response.headers.pop('X-Powered-By', None)
+    if 'Server' in response.headers:
+        del response.headers['Server']
+    if 'X-Powered-By' in response.headers:
+        del response.headers['X-Powered-By']
     
     return response
 
