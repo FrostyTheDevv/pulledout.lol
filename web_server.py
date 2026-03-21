@@ -124,7 +124,8 @@ def validate_csrf_token(token):
 # Make CSRF token available to all templates (renamed to avoid scanner flags)
 @app.context_processor
 def inject_csrf_token():
-    return dict(form_state=generate_csrf_token())
+    token = generate_csrf_token()
+    return dict(form_state=token, csrf_token=token)  # Provide both names for compatibility
 
 # CSRF protection decorator for API routes
 def csrf_protected(f):
@@ -260,15 +261,19 @@ def add_security_headers(response):
     if 'X-Powered-By' in response.headers:
         del response.headers['X-Powered-By']
     
-    # Manually ensure SameSite is set on session cookies
+    # Manually ensure SameSite is set on session cookies (Flask config not always applied correctly)
     if 'Set-Cookie' in response.headers:
         cookies = response.headers.getlist('Set-Cookie')
         response.headers.remove('Set-Cookie')
         for cookie in cookies:
             if 'session=' in cookie:
-                # Ensure SameSite=Lax is present
-                if 'SameSite' not in cookie:
-                    cookie = cookie.rstrip(';') + '; SameSite=Lax'
+                # Ensure SameSite=Lax is present (case-sensitive format)
+                if 'SameSite' not in cookie and 'samesite' not in cookie.lower():
+                    # Remove trailing semicolons and add SameSite
+                    cookie = cookie.rstrip('; ') + '; SameSite=Lax'
+                elif 'samesite' in cookie.lower() and 'SameSite' not in cookie:
+                    # Fix case if needed
+                    cookie = cookie.replace('samesite=Lax', 'SameSite=Lax').replace('samesite=lax', 'SameSite=Lax')
             response.headers.add('Set-Cookie', cookie)
     
     return response

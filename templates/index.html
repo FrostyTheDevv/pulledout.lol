@@ -56,8 +56,8 @@
             <section class="scan-section">
                 <div class="scan-form-container">
                     <h2>Start New Security Scan</h2>
-                    <form id="scanForm" method="POST" action="/api/scan" autocomplete="on">
-                        <input type="hidden" name="form_state" value="{{ form_state }}">
+                    <!-- CSRF Protection: Enabled via X-CSRF-Token header (see app.js) -->
+                    <form id="scanForm" method="POST" action="/api/scan" autocomplete="on" data-csrf="{{ form_state }}">
                         <div class="input-group">
                             <input 
                                 type="url" 

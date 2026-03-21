@@ -33,8 +33,8 @@
                 <h1>PULLEDOUT.LOL</h1>
             </div>
             
-            <form id="loginForm" class="auth-form" method="POST" action="/api/auth/login" autocomplete="on">
-                <input type="hidden" name="form_state" value="{{ form_state }}">
+            <!-- CSRF Protection: Enabled via X-CSRF-Token header (see login.js) -->
+            <form id="loginForm" class="auth-form" method="POST" action="/api/auth/login" autocomplete="on" data-csrf="{{ form_state }}">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username">
