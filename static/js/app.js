@@ -2,7 +2,10 @@
 // Get CSRF token from meta tag
 function getCSRFToken() {
     const meta = document.querySelector('meta[name="csrf-token"]');
-    return meta ? meta.getAttribute('content') : '';
+    const token = meta ? meta.getAttribute('content') : '';
+    console.log('CSRF Token Meta Tag:', meta);
+    console.log('CSRF Token Value:', token);
+    return token;
 }
 
 let sessionToken = localStorage.getItem('sessionToken');

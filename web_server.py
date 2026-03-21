@@ -117,7 +117,7 @@ def validate_csrf_token(token):
 # Make CSRF token available to all templates
 @app.context_processor
 def inject_csrf_token():
-    return dict(csrf_token=generate_csrf_token)
+    return dict(csrf_token=generate_csrf_token())
 
 # CSRF protection decorator for API routes
 def csrf_protected(f):
