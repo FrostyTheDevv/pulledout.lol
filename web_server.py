@@ -140,6 +140,7 @@ def csrf_protected(f):
         # Get token from header or form data (support all standard CSRF field names)
         token = (request.headers.get('X-CSRF-Token') or 
                 request.headers.get('X-XSRF-Token') or
+                request.form.get('_token') or 
                 request.form.get('csrf_token') or 
                 request.form.get('_csrf') or 
                 request.form.get('authenticity_token') or 
