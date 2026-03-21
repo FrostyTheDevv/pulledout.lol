@@ -250,6 +250,19 @@ def add_security_headers(response):
     # Remove server header
     response.headers.pop('Server', None)
     
+    # Manually ensure SameSite is set on session cookies (Flask bug workaround)
+    if 'Set-Cookie' in response.headers:
+        cookies = response.headers.getlist('Set-Cookie')
+        response.headers.remove('Set-Cookie')
+        for cookie in cookies:
+            if 'session=' in cookie and 'SameSite' not in cookie:
+                # Add SameSite=Lax if not present
+                if cookie.endswith(';'):
+                    cookie = cookie + ' SameSite=Lax'
+                else:
+                    cookie = cookie + '; SameSite=Lax'
+            response.headers.add('Set-Cookie', cookie)
+    
     return response
 
 # Store scan results in memory (use database for production)
