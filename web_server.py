@@ -83,6 +83,9 @@ LEMONSQUEEZY_STORE_URL = os.environ.get('LEMONSQUEEZY_STORE_URL')
 LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
 LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
+# Static file versioning for cache busting
+STATIC_VERSION = '20260321172300'  # Update this when static files change
+
 # Session configuration - auto-detect production HTTPS
 is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
 app.config['SESSION_COOKIE_SECURE'] = is_production  # True in production (HTTPS), False in dev
@@ -140,11 +143,11 @@ def validate_csrf_token(token):
     """Validate CSRF token from request"""
     return token and session.get('csrf_token') == token
 
-# Make CSRF token available to all templates (renamed to avoid scanner flags)
+# Make CSRF token and static version available to all templates
 @app.context_processor
 def inject_csrf_token():
     token = generate_csrf_token()
-    return dict(form_state=token, csrf_token=token)  # Provide both names for compatibility
+    return dict(form_state=token, csrf_token=token, v=STATIC_VERSION)  # Provide both names for compatibility
 
 # CSRF protection decorator for API routes
 def csrf_protected(f):
