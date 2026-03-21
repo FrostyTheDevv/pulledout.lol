@@ -293,6 +293,17 @@ async function loadScanResults() {
         // Reload recent scans
         loadRecentScans();
         
+        // Re-enable form so user can immediately start a new scan
+        const scanButton = document.getElementById('scanButton');
+        scanButton.disabled = false;
+        const btnText = document.querySelector('.btn-text');
+        const btnLoader = document.querySelector('.btn-loader');
+        if (btnText) btnText.style.display = 'inline';
+        if (btnLoader) btnLoader.classList.remove('active');
+        
+        // Clear the input field for next scan
+        document.getElementById('targetUrl').value = '';
+        
     } catch (error) {
         console.error('Error loading results:', error);
         showError('Failed to load scan results');
