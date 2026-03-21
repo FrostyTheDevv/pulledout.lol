@@ -60,7 +60,7 @@
             <section class="scan-section">
                 <div class="scan-form-container">
                     <h2>Start New Security Scan</h2>
-                    <form id="scanForm">
+                    <form id="scanForm" method="POST" action="/api/scan" autocomplete="on">
                         <div class="input-group">
                             <input 
                                 type="url" 
@@ -73,12 +73,14 @@
                             <input 
                                 type="number" 
                                 id="maxPages" 
+                                name="maxPages"
                                 placeholder="Max pages" 
                                 value="10"
                                 min="1"
                                 max="100"
                                 class="max-pages-input"
                                 title="Number of pages to scan (1-100)"
+                                autocomplete="off"
                             >
                             <button type="submit" id="scanButton" class="btn btn-primary">
                                 <span class="btn-text">Start Scan</span>

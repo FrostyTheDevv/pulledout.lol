@@ -2,11 +2,9 @@
 User-agent: *
 Allow: /
 Disallow: /api/
-Disallow: /reports/
-Disallow: /admin/
 
 # Sitemap
 Sitemap: https://pulledout.lol/sitemap.xml
 
-# Crawl delay (be respectful)
+# Crawl delay
 Crawl-delay: 1

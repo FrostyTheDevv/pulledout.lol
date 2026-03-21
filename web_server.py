@@ -96,6 +96,12 @@ def add_security_headers(response):
         "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data: https:",
         "connect-src 'self'",
+        "media-src 'none'",
+        "frame-src 'none'",
+        "worker-src 'self'",
+        "manifest-src 'self'",
+        "prefetch-src 'self'",
+        "navigate-to 'self' https:",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
@@ -123,7 +129,15 @@ def add_security_headers(response):
         'bluetooth=()',
         'accelerometer=()',
         'gyroscope=()',
-        'magnetometer=()'
+        'magnetometer=()',
+        'ambient-light-sensor=()',
+        'autoplay=()',
+        'encrypted-media=()',
+        'fullscreen=()',
+        'picture-in-picture=()',
+        'screen-wake-lock=()',
+        'web-share=()',
+        'xr-spatial-tracking=()'
     ]
     response.headers['Permissions-Policy'] = ', '.join(permissions)
     
