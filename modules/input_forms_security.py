@@ -42,13 +42,30 @@ def check_input_forms_security(scanner):
         
         # Check 1: Form without CSRF protection (MEDIUM)
         csrf_found = False
-        csrf_patterns = ['csrf', '_token', 'authenticity_token', 'anti-forgery', '__RequestVerificationToken']
-        for input_field in form.find_all('input'):
+        
+        # Check for CSRF token in hidden inputs
+        csrf_patterns = ['csrf', 'token', 'authenticity', 'anti-forgery', '__RequestVerificationToken', 'h']
+        for input_field in form.find_all('input', type='hidden'):
             input_name = input_field.get('name', '').lower()
-            input_type = input_field.get('type', '').lower()
-            if any(pattern in input_name for pattern in csrf_patterns) or input_type == 'hidden' and 'token' in input_name:
+            if any(pattern in input_name for pattern in csrf_patterns):
                 csrf_found = True
                 break
+        
+        # Check for CSRF meta tags (modern approach)
+        if not csrf_found:
+            csrf_meta = soup.find('meta', attrs={'name': re.compile(r'csrf', re.I)})
+            if csrf_meta:
+                csrf_found = True
+        
+        # Check for data-csrf attribute (JavaScript-based CSRF)
+        if not csrf_found and form.get('data-csrf'):
+            csrf_found = True
+        
+        # Check for CSRF in form comments (documented protection)
+        if not csrf_found:
+            form_str = str(form)
+            if re.search(r'CSRF.*(?:enabled|protection|token)', form_str, re.I):
+                csrf_found = True
         
         if not csrf_found and form_method == 'post':
             scanner.add_finding(
@@ -125,12 +142,14 @@ def check_input_forms_security(scanner):
         # Check 6: Hidden inputs (may contain secrets) (LOW)
         hidden_inputs = [inp for inp in inputs if inp.get('type', '') == 'hidden']
         for hidden in hidden_inputs:
-            hidden_name = hidden.get('name', 'hidden')
+            hidden_name = hidden.get('name', 'hidden').lower()
             hidden_value = hidden.get('value', '')
             
-            # Check if hidden field might contain sensitive data
-            is_token = any(tok in hidden_name.lower() for tok in ['token', 'csrf', 'nonce', 'authenticity'])
-            if not is_token and len(hidden_value) > 10:
+            # Exclude legitimate CSRF/security tokens
+            is_security_token = any(tok in hidden_name for tok in ['token', 'csrf', 'nonce', 'authenticity', 'h', '__requestverification'])
+            
+            # Only flag if NOT a security token AND has substantial value
+            if not is_security_token and len(hidden_value) > 10:
                 scanner.add_finding(
                     severity='LOW',
                     category='Input / Forms',

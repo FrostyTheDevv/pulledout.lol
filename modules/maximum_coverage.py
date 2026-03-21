@@ -22,14 +22,25 @@ def maximum_coverage_scan(scanner):
         
         # ==================== META TAG SECURITY ====================
         meta_tags_security = [
-            ('viewport', 'Viewport meta tag'),
-            ('charset', 'Charset declaration'),
-            ('x-ua-compatible', 'X-UA-Compatible'),
-            ('theme-color', 'Theme color'),
+            ('viewport', 'Viewport meta tag', 'name'),
+            ('x-ua-compatible', 'X-UA-Compatible', 'http-equiv'),
+            ('theme-color', 'Theme color', 'name'),
         ]
         
-        for tag_name, description in meta_tags_security:
-            meta = soup.find('meta', attrs={'name': tag_name}) or soup.find('meta', attrs={'http-equiv': tag_name})
+        # Special case: charset can be an attribute OR a meta tag
+        charset_meta = soup.find('meta', charset=True) or soup.find('meta', attrs={'http-equiv': re.compile(r'content-type', re.I)})
+        if not charset_meta:
+            scanner.add_finding(
+                severity='INFO',
+                category='Client-side Exposure',
+                title=f'Missing meta tag: Charset declaration',
+                description=f'Meta tag "charset" not found',
+                url=scanner.target_url,
+                remediation='Add <meta charset="UTF-8">'
+            )
+        
+        for tag_name, description, attr_type in meta_tags_security:
+            meta = soup.find('meta', attrs={attr_type: tag_name})
             if not meta:
                 scanner.add_finding(
                     severity='INFO',
@@ -37,7 +48,7 @@ def maximum_coverage_scan(scanner):
                     title=f'Missing meta tag: {description}',
                     description=f'Meta tag "{tag_name}" not found',
                     url=scanner.target_url,
-                    remediation=f'Add <meta name="{tag_name}">'
+                    remediation=f'Add <meta {attr_type}="{tag_name}">'
                 )
         
         # ==================== LINK REL SECURITY ====================
@@ -157,17 +168,23 @@ def maximum_coverage_scan(scanner):
                         remediation='Set autocomplete="new-password" or "current-password"'
                     )
             
-            # Hidden inputs with sensitive data
+            # Hidden inputs with sensitive data (exclude CSRF tokens)
             if input_type == 'hidden':
                 value = inp.get('value', '')
-                if any(keyword in value.lower() for keyword in ['token', 'key', 'secret', 'password']):
+                name = inp.get('name', '').lower()
+                
+                # Ignore legitimate CSRF/security tokens
+                is_security_token = any(keyword in name for keyword in ['csrf', 'token', 'authenticity', 'nonce', 'h', '__requestverification'])
+                
+                # Only flag if it contains sensitive keywords AND is not a security token
+                if not is_security_token and any(keyword in value.lower() for keyword in ['password', 'key', 'secret', 'api']):
                     scanner.add_finding(
                         severity='MEDIUM',
-                        category='Information Disclosure',
-                        title=f'Sensitive data in hidden input',
-                        description=f'Hidden input "{input_name}" may contain sensitive data',
+                        category='Client-side Exposure',
+                        title=f'Sensitive data in hidden form field',
+                        description=f'Hidden input "{input_name}" may contain sensitive data exposed in HTML source',
                         url=scanner.target_url,
-                        remediation='Avoid storing tokens in hidden fields'
+                        remediation='Avoid storing passwords, API keys, or secrets in hidden fields. Use server-side session storage.'
                     )
         
         # ==================== IFRAME SECURITY ====================
