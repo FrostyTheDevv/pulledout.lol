@@ -396,6 +396,7 @@ async function loadScanResults() {
         }
         
         const results = await response.json();
+        console.log('Scan results received:', results);
         displayResults(results);
         
         // Hide progress, show results
@@ -429,12 +430,17 @@ async function loadScanResults() {
 
 // ==================== DISPLAY RESULTS ====================
 function displayResults(results) {
+    console.log('displayResults called with:', results);
+    console.log('target_url:', results.target_url);
+    console.log('scan_time:', results.scan_time);
+    console.log('findings:', results.findings);
+    
     // Set results header info
-    document.getElementById('resultsUrl').textContent = results.target_url;
-    document.getElementById('scanTime').textContent = formatDateTime(results.scan_time);
-    document.getElementById('pagesScanned').textContent = results.pages_scanned;
-    document.getElementById('riskScore').textContent = results.risk_score;
-    document.getElementById('riskLevel').textContent = results.risk_level;
+    document.getElementById('resultsUrl').textContent = results.target_url || 'Unknown';
+    document.getElementById('scanTime').textContent = formatDateTime(results.scan_time) || 'Unknown';
+    document.getElementById('pagesScanned').textContent = results.pages_scanned || 0;
+    document.getElementById('riskScore').textContent = results.risk_score || 0;
+    document.getElementById('riskLevel').textContent = results.risk_level || 'Unknown';
     
     // Findings Summary - calculate if not provided
     let findingsSummary = results.findings_summary;
