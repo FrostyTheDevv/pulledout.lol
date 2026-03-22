@@ -984,12 +984,17 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
         # Store results
         results['report_path'] = report_path
         results['scan_id'] = scan_id
+        
+        logger.info(f"Storing scan results for {scan_id}. Keys: {list(results.keys())}")
+        logger.info(f"Results summary - pages: {results.get('pages_scanned')}, findings: {len(results.get('findings', []))}, target: {results.get('target_url')}")
+        
         scan_results[scan_id] = results
         
         # Save to database if user is authenticated
         if user_id:
             with app.app_context():
-                ScanManager.save_scan(user_id, results)
+                saved = ScanManager.save_scan(user_id, results)
+                logger.info(f"Scan {scan_id} saved to database: {saved}")
         
         # Update status
         scan_status[scan_id] = {
@@ -999,6 +1004,8 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
             'pages_scanned': results['pages_scanned'],
             'total_findings': len(results['findings'])
         }
+        
+        logger.info(f"Scan {scan_id} completed successfully")
         
     except Exception as e:
         import traceback
@@ -1272,12 +1279,18 @@ def get_scan_status(scan_id):
 @app.route('/api/scan/<scan_id>/results', methods=['GET'])
 def get_scan_results(scan_id):
     """Get results of a completed scan"""
+    logger.info(f"Getting results for scan {scan_id}")
+    
     # Check in-memory first
     if scan_id in scan_results:
-        return jsonify(scan_results[scan_id])
+        results = scan_results[scan_id]
+        logger.info(f"Found scan {scan_id} in Redis/memory. Keys: {list(results.keys()) if isinstance(results, dict) else 'not a dict'}")
+        logger.info(f"Results type: {type(results)}, target_url: {results.get('target_url') if isinstance(results, dict) else 'N/A'}")
+        return jsonify(results)
     
     # Fallback to database
     if not hasattr(g, 'user_id'):
+        logger.warning(f"No user_id in context for scan {scan_id}")
         return jsonify({'error': 'Authentication required'}), 401
     
     results = ScanManager.get_scan_details(scan_id, g.user_id)
