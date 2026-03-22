@@ -11,11 +11,15 @@ function getCSRFToken() {
     return '';
 }
 
-let sessionToken = localStorage.getItem('sessionToken');
-let currentUsername = localStorage.getItem('username');
+let sessionToken = null;
+let currentUsername = null;
 
 // Check authentication on page load
 async function checkAuth() {
+    // Re-read from localStorage every time (callback page may have just set these)
+    sessionToken = localStorage.getItem('sessionToken');
+    currentUsername = localStorage.getItem('username');
+    
     if (sessionToken && currentUsername) {
         // Show user greeting
         document.getElementById('userGreeting').classList.remove('hidden');
@@ -27,9 +31,9 @@ async function checkAuth() {
         await checkGuildAccess();
         return true;
     } else {
-        // Redirect to login
+        // Redirect to login and throw to stop further execution
         window.location.href = '/login';
-        return false;
+        throw new Error('Not authenticated');
     }
 }
 
@@ -150,8 +154,15 @@ const API_BASE = window.location.origin;
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', async function() {
-    // Check authentication first - MUST complete before any API calls
-    await checkAuth();
+    try {
+        // Check authentication first - throws if not authenticated
+        await checkAuth();
+    } catch (e) {
+        // Not authenticated - stop all initialization, redirect is in progress
+        return;
+    }
+    
+    // Only runs if authenticated:
     
     // Check system info (database type)
     checkSystemInfo();

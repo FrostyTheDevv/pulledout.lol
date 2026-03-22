@@ -85,7 +85,7 @@ LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
 LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
 # Static file versioning for cache busting
-STATIC_VERSION = '20260322003000'  # Update this when static files change
+STATIC_VERSION = '20260322003500'  # Update this when static files change
 
 # Session configuration - auto-detect production HTTPS
 is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
@@ -590,6 +590,7 @@ def discord_callback():
                 logger.info(f"User {discord_username} has access - redirecting to dashboard")
             
             # Render success page with token and redirect - no cache, no external resources
+            # IMPORTANT: No meta refresh - it races with JavaScript and can redirect before localStorage is set
             response = make_response(f'''<!DOCTYPE html>
 <html>
 <head>
@@ -597,23 +598,22 @@ def discord_callback():
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <meta http-equiv="refresh" content="0;url={redirect_url}">
     <title>Login Successful</title>
     <style>
         body {{ font-family: sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }}
     </style>
     <script>
-        // Store auth data in localStorage
+        // Store auth data in localStorage FIRST, then redirect
         localStorage.setItem('sessionToken', '{result["session_token"]}');
         localStorage.setItem('username', '{result["username"]}');
         localStorage.setItem('discordAvatar', '{result.get("discord_avatar", "") or ""}');
         
-        // Immediate redirect (meta refresh as backup)
+        // Redirect after localStorage is set
         window.location.replace('{redirect_url}');
     </script>
 </head>
 <body>
-    <p>✓ Login successful! Redirecting...</p>
+    <p>Logging you in...</p>
 </body>
 </html>''')
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
