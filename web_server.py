@@ -282,7 +282,7 @@ def add_security_headers(response):
     csp_directives = [
         "default-src 'self'",
         "script-src 'self'",
-        "style-src 'self'",
+        "style-src 'self' 'unsafe-inline'",  # unsafe-inline needed for dynamic styles in app.js
         "font-src 'self'",
         "img-src 'self' data: https:",
         "connect-src 'self'",
