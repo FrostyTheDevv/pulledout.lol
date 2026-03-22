@@ -11,8 +11,11 @@ import os
 import logging
 import time
 import aiohttp
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional, Any
+
+# EST timezone (UTC-5)
+EST = timezone(timedelta(hours=-5))
 from dotenv import load_dotenv
 import json
 from pathlib import Path
@@ -484,7 +487,8 @@ async def status_command(ctx, user: discord.Member = None):
                     
                     # Last login
                     if profile.last_login:
-                        last_login_str = profile.last_login.strftime('%Y-%m-%d %H:%M UTC')
+                        last_login_est = profile.last_login.replace(tzinfo=timezone.utc).astimezone(EST)
+                        last_login_str = last_login_est.strftime('%Y-%m-%d %I:%M %p EST')
                         embed.add_field(
                             name="Last Website Login",
                             value=last_login_str,
@@ -493,7 +497,8 @@ async def status_command(ctx, user: discord.Member = None):
                     
                     # Account created
                     if user_auth.created_at:
-                        created_str = user_auth.created_at.strftime('%Y-%m-%d')
+                        created_est = user_auth.created_at.replace(tzinfo=timezone.utc).astimezone(EST)
+                        created_str = created_est.strftime('%Y-%m-%d')
                         embed.add_field(
                             name="Account Created",
                             value=created_str,
@@ -520,36 +525,37 @@ async def status_command(ctx, user: discord.Member = None):
                         inline=True
                     )
                     
-                    # Display user tokens (ephemeral message - only user can see)
+                    # Display session tokens (ephemeral message - only user can see)
                     if active_sessions:
                         token_info = []
                         for idx, session in enumerate(active_sessions, 1):
-                            created = session.created_at.strftime('%m/%d %H:%M')
-                            expires = session.expires_at.strftime('%m/%d %H:%M')
-                            # Show full token in spoiler tags for security
+                            created_est = session.created_at.replace(tzinfo=timezone.utc).astimezone(EST)
+                            expires_est = session.expires_at.replace(tzinfo=timezone.utc).astimezone(EST)
+                            created = created_est.strftime('%m/%d %I:%M %p')
+                            expires = expires_est.strftime('%m/%d %I:%M %p')
                             token_info.append(
-                                f"**Token {idx}:**\n"
-                                f"User Token: ||`{session.session_token}`||\n"
-                                f"Created: {created} UTC\n"
-                                f"Expires: {expires} UTC"
+                                f"**Session {idx}:**\n"
+                                f"Session Token: ||`{session.session_token}`||\n"
+                                f"Created: {created} EST\n"
+                                f"Expires: {expires} EST"
                             )
                         
                         embed.add_field(
-                            name="User Tokens (Keep Secure!)",
-                            value="\n\n".join(token_info[:3]),  # Show max 3 tokens
+                            name="Session Tokens (Keep Secure!)",
+                            value="\n\n".join(token_info[:3]),  # Show max 3 sessions
                             inline=False
                         )
                         
                         if len(active_sessions) > 3:
                             embed.add_field(
                                 name="Note",
-                                value=f"Showing 3 of {len(active_sessions)} tokens. Use website to manage all tokens.",
+                                value=f"Showing 3 of {len(active_sessions)} sessions. Use website to manage all sessions.",
                                 inline=False
                             )
                     else:
                         embed.add_field(
-                            name="User Tokens",
-                            value="No active tokens. Login to pulledout.lol to create a token.",
+                            name="Session Tokens",
+                            value="No active sessions. Login to pulledout.lol to create a session.",
                             inline=False
                         )
                 else:
@@ -841,7 +847,7 @@ async def check_command(ctx, member: discord.Member):
     else:
         status = "No Access"
     
-    joined_str = member.joined_at.strftime('%Y-%m-%d %H:%M UTC') if member.joined_at else 'Unknown'
+    joined_str = member.joined_at.replace(tzinfo=timezone.utc).astimezone(EST).strftime('%Y-%m-%d %I:%M %p EST') if member.joined_at else 'Unknown'
     
     embed = create_embed(f"User Status - {member.display_name}")
     embed.add_field(name="Status", value=status, inline=False)

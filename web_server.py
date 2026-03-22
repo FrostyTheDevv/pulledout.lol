@@ -849,14 +849,23 @@ def denied_page():
 @login_required
 def create_checkout():
     """Create a LemonSqueezy checkout session"""
-    if not all([LEMONSQUEEZY_API_KEY, LEMONSQUEEZY_STORE_ID, LEMONSQUEEZY_PRODUCT_ID]):
-        logger.error("LemonSqueezy configuration missing")
-        return jsonify({'error': 'Payment system not configured'}), 500
+    missing = []
+    if not LEMONSQUEEZY_API_KEY:
+        missing.append('LEMONSQUEEZY_API_KEY')
+    if not LEMONSQUEEZY_STORE_ID:
+        missing.append('LEMONSQUEEZY_STORE_ID')
+    if not LEMONSQUEEZY_PRODUCT_ID:
+        missing.append('LEMONSQUEEZY_PRODUCT_ID')
+    if missing:
+        logger.error(f"LemonSqueezy configuration missing: {', '.join(missing)}")
+        return jsonify({'error': f'Payment system not configured (missing: {", ".join(missing)})'}), 500
     
     try:
         # Get user info from session
         discord_id = g.discord_id
         username = g.username
+        
+        logger.info(f"Creating checkout for user {username} ({discord_id}), store_id={LEMONSQUEEZY_STORE_ID}, variant_id={LEMONSQUEEZY_PRODUCT_ID}")
         
         # Create checkout session with LemonSqueezy
         checkout_data = {
@@ -912,11 +921,19 @@ def create_checkout():
             return jsonify({'checkout_url': checkout_url})
         else:
             logger.error(f"LemonSqueezy checkout failed: {response.status_code} - {response.text}")
-            return jsonify({'error': 'Failed to create checkout session'}), 500
+            # Parse LemonSqueezy error details
+            detail = f"LemonSqueezy API returned {response.status_code}"
+            try:
+                err_data = response.json()
+                if 'errors' in err_data:
+                    detail = '; '.join(e.get('detail', e.get('title', '')) for e in err_data['errors'])
+            except Exception:
+                pass
+            return jsonify({'error': f'Checkout failed: {detail}'}), 500
             
     except Exception as e:
         logger.error(f"Error creating checkout: {str(e)}", exc_info=True)
-        return jsonify({'error': 'Payment system error'}), 500
+        return jsonify({'error': f'Payment system error: {str(e)}'}), 500
 
 @app.route('/api/payment/webhook', methods=['POST'])
 def payment_webhook():
