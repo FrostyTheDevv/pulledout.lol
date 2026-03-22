@@ -436,11 +436,21 @@ function displayResults(results) {
     document.getElementById('riskScore').textContent = results.risk_score;
     document.getElementById('riskLevel').textContent = results.risk_level;
     
-    // Findings Summary
-    document.getElementById('highCount').textContent = results.findings_summary.HIGH;
-    document.getElementById('mediumCount').textContent = results.findings_summary.MEDIUM;
-    document.getElementById('lowCount').textContent = results.findings_summary.LOW;
-    document.getElementById('infoCount').textContent = results.findings_summary.INFO;
+    // Findings Summary - calculate if not provided
+    let findingsSummary = results.findings_summary;
+    if (!findingsSummary && results.findings) {
+        findingsSummary = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 };
+        results.findings.forEach(f => {
+            if (findingsSummary[f.severity] !== undefined) {
+                findingsSummary[f.severity]++;
+            }
+        });
+    }
+    
+    document.getElementById('highCount').textContent = findingsSummary?.HIGH || 0;
+    document.getElementById('mediumCount').textContent = findingsSummary?.MEDIUM || 0;
+    document.getElementById('lowCount').textContent = findingsSummary?.LOW || 0;
+    document.getElementById('infoCount').textContent = findingsSummary?.INFO || 0;
     
     // Category Grid
     const categoryGrid = document.getElementById('categoryGrid');
