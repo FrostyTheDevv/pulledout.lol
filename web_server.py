@@ -406,9 +406,10 @@ def add_security_headers(response):
 class RedisScanStorage:
     """Redis wrapper for scan storage with fallback to in-memory dict"""
     
-    def __init__(self, redis_url=None):
+    def __init__(self, redis_url=None, key_prefix="scan"):
         self.redis_client = None
         self.fallback_dict = {}
+        self.key_prefix = key_prefix
         
         try:
             if redis_url and REDIS_AVAILABLE:
@@ -437,7 +438,7 @@ class RedisScanStorage:
             if self.redis_client:
                 # Serialize to JSON and store in Redis with 24h expiration
                 json_value = json.dumps(value, default=str)
-                self.redis_client.setex(f"scan:{key}", 86400, json_value)
+                self.redis_client.setex(f"{self.key_prefix}:{key}", 86400, json_value)
             else:
                 self.fallback_dict[key] = value
         except Exception as e:
@@ -448,7 +449,7 @@ class RedisScanStorage:
         """Retrieve value with automatic JSON deserialization"""
         try:
             if self.redis_client:
-                value = self.redis_client.get(f"scan:{key}")
+                value = self.redis_client.get(f"{self.key_prefix}:{key}")
                 if value is None:
                     raise KeyError(key)
                 return json.loads(value)
@@ -466,7 +467,7 @@ class RedisScanStorage:
         """Check if key exists"""
         try:
             if self.redis_client:
-                return bool(self.redis_client.exists(f"scan:{key}"))  # type: ignore
+                return bool(self.redis_client.exists(f"{self.key_prefix}:{key}"))  # type: ignore
             else:
                 return key in self.fallback_dict
         except Exception as e:
@@ -484,9 +485,9 @@ class RedisScanStorage:
         """Get all keys"""
         try:
             if self.redis_client:
-                # Get all scan keys and strip the "scan:" prefix
-                redis_keys = self.redis_client.keys("scan:*")  # type: ignore
-                return [k.replace("scan:", "", 1) for k in redis_keys]  # type: ignore
+                # Get all scan keys and strip the prefix
+                redis_keys = self.redis_client.keys(f"{self.key_prefix}:*")  # type: ignore
+                return [k.replace(f"{self.key_prefix}:", "", 1) for k in redis_keys]  # type: ignore
             else:
                 return list(self.fallback_dict.keys())
         except Exception as e:
@@ -530,8 +531,8 @@ class RedisScanStorage:
 
 # Initialize Redis storage for scans
 REDIS_URL = os.environ.get('REDIS_URL')
-scan_results = RedisScanStorage(REDIS_URL)
-scan_status = RedisScanStorage(REDIS_URL)
+scan_results = RedisScanStorage(REDIS_URL, key_prefix="results")
+scan_status = RedisScanStorage(REDIS_URL, key_prefix="status")
 
 # Ensure reports directory exists
 REPORTS_DIR = 'reports'
