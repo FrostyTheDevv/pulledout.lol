@@ -150,9 +150,51 @@ def init_database(app):
     
     with app.app_context():
         try:
+            from sqlalchemy import inspect, text
+            
+            # Check if we need to migrate from old schema
+            inspector = inspect(db.engine)
+            existing_tables = inspector.get_table_names()
+            logger.info(f"Existing tables: {existing_tables}")
+            
+            needs_migration = 'users' in existing_tables and 'user_auth' not in existing_tables
+            
+            if needs_migration:
+                logger.info("Old 'users' table detected - migrating to new schema...")
+                print("[!] Migrating database from old schema to new schema...")
+                
+                # Drop old tables with CASCADE to remove foreign key constraints
+                db.session.execute(text("DROP TABLE IF EXISTS sessions CASCADE"))
+                db.session.execute(text("DROP TABLE IF EXISTS scans CASCADE"))
+                db.session.execute(text("DROP TABLE IF EXISTS users CASCADE"))
+                db.session.commit()
+                logger.info("Old tables dropped successfully")
+                print("[OK] Old tables dropped")
+            elif 'users' in existing_tables and 'user_auth' in existing_tables:
+                # Both old and new exist - clean up old table
+                logger.info("Both old and new tables exist - dropping old 'users' table...")
+                db.session.execute(text("DROP TABLE IF EXISTS users CASCADE"))
+                db.session.commit()
+                logger.info("Old 'users' table dropped")
+            
+            # Check if sessions table has FK pointing to old 'users' table
+            if 'sessions' in existing_tables and 'user_auth' in existing_tables:
+                try:
+                    fks = inspector.get_foreign_keys('sessions')
+                    for fk in fks:
+                        if fk.get('referred_table') == 'users':
+                            logger.info("Sessions table has FK to old 'users' table - recreating...")
+                            db.session.execute(text("DROP TABLE IF EXISTS sessions CASCADE"))
+                            db.session.execute(text("DROP TABLE IF EXISTS scans CASCADE"))
+                            db.session.commit()
+                            break
+                except Exception as fk_err:
+                    logger.warning(f"Could not check foreign keys: {fk_err}")
+                    db.session.rollback()
+            
+            # Create all tables (only creates missing ones)
             db.create_all()
             logger.info("Database initialized successfully")
-            logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI'][:50]}...")
             
             # Log user count for debugging
             auth_count = UserAuth.query.count()
@@ -162,12 +204,13 @@ def init_database(app):
             print("[OK] Database initialized successfully")
             print(f"[OK] Database structure: UserAuth (auth data) + UserProfile (display data)")
         except Exception as e:
-            # Tables may already exist from previous deployments
+            db.session.rollback()
             error_msg = str(e)
             if "already exists" in error_msg or "duplicate key" in error_msg:
                 logger.info("Using existing database schema")
                 print("[OK] Using existing database schema")
             else:
+                logger.error(f"Database initialization error: {e}", exc_info=True)
                 print(f"[!] Database initialization warning: {e}")
                 print("[OK] Continuing with existing schema")
 

@@ -104,7 +104,27 @@ if database_url:
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
         logger.info("Converted postgres:// to postgresql://")
+    
+    # Add SSL parameters for Railway PostgreSQL if not already present
+    if 'postgresql://' in database_url and '?' not in database_url:
+        database_url += '?sslmode=require'
+        logger.info("Added SSL mode requirement for PostgreSQL")
+    elif 'postgresql://' in database_url and 'sslmode' not in database_url:
+        database_url += '&sslmode=require'
+        logger.info("Added SSL mode requirement for PostgreSQL")
+    
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,  # Verify connections before using
+        'pool_recycle': 300,  # Recycle connections every 5 minutes
+        'pool_size': 10,  # Max pool size
+        'max_overflow': 20,  # Allow up to 20 overflow connections
+        'connect_args': {
+            'sslmode': 'require',
+            'connect_timeout': 10,
+        }
+    }
+    logger.info("Configured PostgreSQL with SSL and connection pooling")
 else:
     # Use volume-mounted path for SQLite persistence on Railway
     # Local development: uses instance/ folder
@@ -569,27 +589,37 @@ def discord_callback():
             else:
                 logger.info(f"User {discord_username} has access - redirecting to dashboard")
             
-            # Render success page with token and redirect
-            return f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Login Successful</title>
-                <script>
-                    // Store auth data in localStorage
-                    localStorage.setItem('sessionToken', '{result["session_token"]}');
-                    localStorage.setItem('username', '{result["username"]}');
-                    localStorage.setItem('discordAvatar', '{result.get("discord_avatar", "")}');
-                    
-                    // Redirect based on access
-                    window.location.href = '{redirect_url}';
-                </script>
-            </head>
-            <body>
-                <p>Logging you in...</p>
-            </body>
-            </html>
-            '''
+            # Render success page with token and redirect - no cache, no external resources
+            response = make_response(f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta http-equiv="refresh" content="0;url={redirect_url}">
+    <title>Login Successful</title>
+    <style>
+        body {{ font-family: sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }}
+    </style>
+    <script>
+        // Store auth data in localStorage
+        localStorage.setItem('sessionToken', '{result["session_token"]}');
+        localStorage.setItem('username', '{result["username"]}');
+        localStorage.setItem('discordAvatar', '{result.get("discord_avatar", "") or ""}');
+        
+        // Immediate redirect (meta refresh as backup)
+        window.location.replace('{redirect_url}');
+    </script>
+</head>
+<body>
+    <p>✓ Login successful! Redirecting...</p>
+</body>
+</html>''')
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
         else:
             return render_template('login.html', error='Failed to create user account')
             
