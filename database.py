@@ -16,6 +16,14 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles datetime objects"""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super(DateTimeEncoder, self).default(obj)
+
 db = SQLAlchemy()
 
 DATABASE_FILE = 'sawsap.db'
@@ -152,6 +160,11 @@ def init_database(app):
         try:
             from sqlalchemy import inspect, text
             
+            # Detect database type for proper DROP TABLE syntax
+            db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+            is_postgres = 'postgresql://' in db_uri or 'postgres://' in db_uri
+            drop_cascade = ' CASCADE' if is_postgres else ''
+            
             # Check if we need to migrate from old schema
             inspector = inspect(db.engine)
             existing_tables = inspector.get_table_names()
@@ -163,17 +176,17 @@ def init_database(app):
                 logger.info("Old 'users' table detected - migrating to new schema...")
                 print("[!] Migrating database from old schema to new schema...")
                 
-                # Drop old tables with CASCADE to remove foreign key constraints
-                db.session.execute(text("DROP TABLE IF EXISTS sessions CASCADE"))
-                db.session.execute(text("DROP TABLE IF EXISTS scans CASCADE"))
-                db.session.execute(text("DROP TABLE IF EXISTS users CASCADE"))
+                # Drop old tables (with CASCADE for PostgreSQL, without for SQLite)
+                db.session.execute(text(f"DROP TABLE IF EXISTS sessions{drop_cascade}"))
+                db.session.execute(text(f"DROP TABLE IF EXISTS scans{drop_cascade}"))
+                db.session.execute(text(f"DROP TABLE IF EXISTS users{drop_cascade}"))
                 db.session.commit()
                 logger.info("Old tables dropped successfully")
                 print("[OK] Old tables dropped")
             elif 'users' in existing_tables and 'user_auth' in existing_tables:
                 # Both old and new exist - clean up old table
                 logger.info("Both old and new tables exist - dropping old 'users' table...")
-                db.session.execute(text("DROP TABLE IF EXISTS users CASCADE"))
+                db.session.execute(text(f"DROP TABLE IF EXISTS users{drop_cascade}"))
                 db.session.commit()
                 logger.info("Old 'users' table dropped")
             
@@ -184,8 +197,8 @@ def init_database(app):
                     for fk in fks:
                         if fk.get('referred_table') == 'users':
                             logger.info("Sessions table has FK to old 'users' table - recreating...")
-                            db.session.execute(text("DROP TABLE IF EXISTS sessions CASCADE"))
-                            db.session.execute(text("DROP TABLE IF EXISTS scans CASCADE"))
+                            db.session.execute(text(f"DROP TABLE IF EXISTS sessions{drop_cascade}"))
+                            db.session.execute(text(f"DROP TABLE IF EXISTS scans{drop_cascade}"))
                             db.session.commit()
                             break
                 except Exception as fk_err:
@@ -376,7 +389,7 @@ class ScanManager:
                 medium_count=findings_summary.get('MEDIUM', 0),
                 low_count=findings_summary.get('LOW', 0),
                 info_count=findings_summary.get('INFO', 0),
-                scan_results=json.dumps(scan_data)
+                scan_results=json.dumps(scan_data, cls=DateTimeEncoder)
             )
             
             db.session.add(scan)

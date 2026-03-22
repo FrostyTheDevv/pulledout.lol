@@ -50,15 +50,30 @@ class RemoveServerHeaderMiddleware:
 # Load environment variables from .env file
 load_dotenv()
 
+# Custom JSON encoder for datetime objects
+from flask.json.provider import DefaultJSONProvider
+
+class DateTimeJSONProvider(DefaultJSONProvider):
+    """Custom JSON provider that handles datetime objects"""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
 # Create Flask app with explicit paths
 app = Flask(__name__,
             template_folder='templates',
             static_folder='static')
 
+# Set custom JSON provider
+app.json = DateTimeJSONProvider(app)
+
 # Configure CORS with specific origin (no wildcard) and support credentials
 CORS(app, 
-     origins=['https://pulledout.lol', 'http://localhost:5000', 'http://127.0.0.1:5000'],
-     supports_credentials=True)
+     origins=['https://pulledout.lol', 'http://localhost:5000', 'http://127.0.0.1:5000', 'http://localhost:3000'],
+     supports_credentials=True,
+     allow_headers=['Content-Type', 'Authorization'],
+     expose_headers=['Content-Type'])
 
 # Enable gzip compression for all responses
 Compress(app)
@@ -66,10 +81,25 @@ Compress(app)
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# Detect production environment
+is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
+
+# Helper function to get base URL (supports localhost for development)
+def get_base_url():
+    """Get base URL - auto-detects localhost for development"""
+    if is_production:
+        return 'https://pulledout.lol'
+    # Development mode
+    return os.environ.get('BASE_URL', 'http://localhost:5000')
+
 # Discord OAuth Configuration
 DISCORD_CLIENT_ID = os.environ.get('DISCORD_CLIENT_ID')
 DISCORD_CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET')
-DISCORD_REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', 'https://pulledout.lol/auth/discord/callback')
+# Auto-detect redirect URI based on environment
+DISCORD_REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI')
+if not DISCORD_REDIRECT_URI:
+    base_url = get_base_url()
+    DISCORD_REDIRECT_URI = f"{base_url}/auth/discord/callback"
 DISCORD_API_BASE = 'https://discord.com/api/v10'
 
 # Discord Bot Configuration for Guild Verification
@@ -85,14 +115,17 @@ LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
 LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
 # Static file versioning for cache busting
-STATIC_VERSION = '20260322011500'  # Update this when static files change
+STATIC_VERSION = '20260322143000'  # Update this when static files change
 
-# Session configuration - auto-detect production HTTPS
-is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
+# Session configuration - use production detection from above
 app.config['SESSION_COOKIE_SECURE'] = is_production  # True in production (HTTPS), False in dev
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_PATH'] = '/'
+
+logger.info(f"Environment: {'PRODUCTION' if is_production else 'DEVELOPMENT'}")
+logger.info(f"Base URL: {get_base_url()}")
+logger.info(f"Discord Redirect: {DISCORD_REDIRECT_URI}")
 
 # Database configuration with Railway support
 # Railway provides DATABASE_URL for PostgreSQL
@@ -100,31 +133,41 @@ database_url = os.environ.get('DATABASE_URL')
 
 if database_url:
     logger.info("DATABASE_URL environment variable found")
-    # Fix for Railway PostgreSQL URLs (postgres:// -> postgresql://)
-    if database_url.startswith('postgres://'):
-        database_url = database_url.replace('postgres://', 'postgresql://', 1)
-        logger.info("Converted postgres:// to postgresql://")
     
-    # Add SSL parameters for Railway PostgreSQL if not already present
-    if 'postgresql://' in database_url and '?' not in database_url:
-        database_url += '?sslmode=require'
-        logger.info("Added SSL mode requirement for PostgreSQL")
-    elif 'postgresql://' in database_url and 'sslmode' not in database_url:
-        database_url += '&sslmode=require'
-        logger.info("Added SSL mode requirement for PostgreSQL")
+    # Check if it's PostgreSQL or SQLite
+    is_postgres = database_url.startswith('postgres://') or database_url.startswith('postgresql://')
     
-    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': True,  # Verify connections before using
-        'pool_recycle': 300,  # Recycle connections every 5 minutes
-        'pool_size': 10,  # Max pool size
-        'max_overflow': 20,  # Allow up to 20 overflow connections
-        'connect_args': {
-            'sslmode': 'require',
-            'connect_timeout': 10,
+    if is_postgres:
+        # Fix for Railway PostgreSQL URLs (postgres:// -> postgresql://)
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+            logger.info("Converted postgres:// to postgresql://")
+        
+        # Add SSL parameters for Railway PostgreSQL if not already present
+        if '?' not in database_url:
+            database_url += '?sslmode=require'
+            logger.info("Added SSL mode requirement for PostgreSQL")
+        elif 'sslmode' not in database_url:
+            database_url += '&sslmode=require'
+            logger.info("Added SSL mode requirement for PostgreSQL")
+        
+        # PostgreSQL-specific configuration
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_pre_ping': True,  # Verify connections before using
+            'pool_recycle': 300,  # Recycle connections every 5 minutes
+            'pool_size': 10,  # Max pool size
+            'max_overflow': 20,  # Allow up to 20 overflow connections
+            'connect_args': {
+                'sslmode': 'require',
+                'connect_timeout': 10,
+            }
         }
-    }
-    logger.info("Configured PostgreSQL with SSL and connection pooling")
+        logger.info("Configured PostgreSQL with SSL and connection pooling")
+    else:
+        # SQLite or other database - no SSL settings
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+        logger.info(f"Configured database: {database_url.split('://')[0]}")
 else:
     # Use volume-mounted path for SQLite persistence on Railway
     # Local development: uses instance/ folder
@@ -362,6 +405,10 @@ def check_guild_membership(discord_id: str) -> dict:
     Check if a Discord user is a member of the required guild and has the correct roles.
     Returns dict with 'has_access', 'reason', 'in_guild', and 'is_denied' keys.
     """
+    
+    # 🔧 TESTING MODE: Uncomment the line below to bypass guild checks during development
+    return {'has_access': True, 'in_guild': True, 'is_denied': False, 'reason': '✅ TESTING - Guild check bypassed'}
+    
     if not DISCORD_BOT_TOKEN or not DISCORD_GUILD_ID:
         logger.warning("Guild verification not configured - allowing access")
         return {'has_access': True, 'in_guild': True, 'is_denied': False, 'reason': 'Guild verification disabled'}
@@ -594,17 +641,22 @@ def discord_callback():
             if not next_url.startswith('/'):
                 next_url = '/'
             
-            redirect_url = next_url
-            if not access_check['has_access']:
-                # Check if user is denied (M.U role)
-                if access_check.get('is_denied', False):
-                    redirect_url = '/denied'
-                    logger.warning(f"User {discord_username} has M.U role - redirected to /denied")
-                else:
-                    # User doesn't have access - redirect to payment page
-                    redirect_url = '/pay'
-                    logger.info(f"User {discord_username} redirected to /pay: {access_check['reason']}")
+            # Special handling: if coming from /pay, always redirect back there
+            # (they're trying to purchase, so let them complete that flow)
+            if next_url == '/pay':
+                redirect_url = '/pay'
+                logger.info(f"User {discord_username} authenticated, redirecting to payment page")
+            elif access_check.get('is_denied', False):
+                # User has M.U/Denied role - redirect to denied page
+                redirect_url = '/denied'
+                logger.warning(f"User {discord_username} has M.U role - redirected to /denied")
+            elif not access_check['has_access']:
+                # User doesn't have access - redirect to payment page
+                redirect_url = '/pay'
+                logger.info(f"User {discord_username} needs to purchase: {access_check['reason']}")
             else:
+                # User has access - go where they wanted
+                redirect_url = next_url
                 logger.info(f"User {discord_username} has access - redirecting to {redirect_url}")
             
             # Server-side redirect with session token in secure cookie
@@ -895,8 +947,10 @@ def create_checkout():
                         }
                     },
                     "product_options": {
-                        "redirect_url": f"{DISCORD_REDIRECT_URI.rsplit('/auth', 1)[0]}/",
-                        "receipt_link_url": f"{DISCORD_REDIRECT_URI.rsplit('/auth', 1)[0]}/"
+                        "redirect_url": f"{get_base_url()}/",
+                        "receipt_link_url": f"{get_base_url()}/",
+                        "receipt_button_text": "Return to Dashboard",
+                        "receipt_thank_you_note": "Thank you for your purchase! Check your Discord DMs for your private server invite."
                     },
                     "checkout_options": {
                         "button_color": "#667eea"
@@ -956,6 +1010,7 @@ def payment_webhook():
     """Handle LemonSqueezy webhook for payment confirmation"""
     try:
         payload = request.json
+        logger.info(f"Webhook received: {payload.get('meta', {}).get('event_name')}")
         
         # Verify webhook signature (if configured)
         # signature = request.headers.get('X-Signature')
@@ -967,27 +1022,25 @@ def payment_webhook():
             # Extract order data
             order_data = payload.get('data', {})
             attributes = order_data.get('attributes', {})
-            custom_data = attributes.get('first_order_item', {}).get('product_id')
             
-            # Get Discord ID from custom data
+            # Get Discord ID from custom data in the webhook meta
             discord_id = payload.get('meta', {}).get('custom_data', {}).get('discord_id')
             
             if discord_id:
                 logger.info(f"Payment received for Discord ID: {discord_id}")
+                logger.info(f"Order #{attributes.get('order_number')} - ${attributes.get('total', 0)/100:.2f}")
                 
                 # TODO: Store payment in database
-                # TODO: Generate Discord invite link
-                # TODO: Send invite to user's email or Discord DM
-                
-                # For now, just log it
-                logger.info(f"Order #{attributes.get('order_number')} - ${attributes.get('total')/100} - User: {discord_id}")
+                # TODO: Notify Discord bot to grant role
+                # TODO: Send confirmation DM to user
                 
                 return jsonify({'success': True, 'message': 'Webhook received'}), 200
             else:
-                logger.warning("Webhook received but no Discord ID found")
-                return jsonify({'error': 'Invalid webhook data'}), 400
+                logger.warning(f"Webhook received but no Discord ID found in payload: {payload.get('meta', {}).get('custom_data')}")
+                return jsonify({'error': 'Invalid webhook data - missing Discord ID'}), 400
         
         # Acknowledge other webhook events
+        logger.info(f"Webhook event acknowledged: {event_name}")
         return jsonify({'success': True}), 200
         
     except Exception as e:
@@ -1008,71 +1061,114 @@ def security_txt():
 @guild_required
 @csrf_protected
 def start_scan():
-    """Start a new security scan (requires authentication)"""
-    data = request.json
-    target_url = data.get('url')
-    max_pages = data.get('max_pages', 10)
-    
-    if not target_url:
-        return jsonify({'error': 'URL is required'}), 400
-    
-    # Auto-prefix URL if needed
-    if not target_url.startswith(('http://', 'https://')):
-        target_url = 'https://' + target_url
-    
-    # Generate scan ID
-    scan_id = str(uuid.uuid4())
-    
-    # Start scan in background thread (pass user_id for database storage)
-    thread = threading.Thread(
-        target=run_scan_thread, 
-        args=(scan_id, target_url, max_pages, g.user_id)
-    )
-    thread.daemon = True
-    thread.start()
-    
-    return jsonify({
-        'scan_id': scan_id,
-        'message': 'Scan started successfully'
-    })
+    """Start a new security scan (requires authentication and guild membership)"""
+    try:
+        data = request.json
+        target_url = data.get('url')
+        max_pages = data.get('max_pages', 10)
+        
+        if not target_url:
+            return jsonify({'error': 'URL is required'}), 400
+        
+        # Auto-prefix URL if needed
+        if not target_url.startswith(('http://', 'https://')):
+            target_url = 'https://' + target_url
+        
+        # Log scan initiation
+        logger.info(f"User {g.username} ({g.user_id}) starting scan of {target_url}")
+        
+        # Generate scan ID
+        scan_id = str(uuid.uuid4())
+        
+        # Initialize scan status
+        scan_status[scan_id] = {
+            'status': 'starting',
+            'progress': 0,
+            'message': 'Initializing scan...'
+        }
+        
+        # Start scan in background thread (pass user_id for database storage)
+        thread = threading.Thread(
+            target=run_scan_thread, 
+            args=(scan_id, target_url, max_pages, g.user_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        logger.info(f"Scan {scan_id} started successfully for {target_url}")
+        
+        return jsonify({
+            'scan_id': scan_id,
+            'message': 'Scan started successfully',
+            'target_url': target_url
+        })
+    except Exception as e:
+        logger.error(f"Error starting scan: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to start scan: {str(e)}'}), 500
 
 @app.route('/api/scan/<scan_id>/status', methods=['GET'])
 def get_scan_status(scan_id):
     """Get status of a scan"""
-    if scan_id not in scan_status:
-        return jsonify({'error': 'Scan not found'}), 404
+    # Check in-memory first
+    if scan_id in scan_status:
+        return jsonify(scan_status[scan_id])
     
-    return jsonify(scan_status[scan_id])
+    # Fallback to database if available
+    if hasattr(g, 'user_id'):
+        results = ScanManager.get_scan_details(scan_id, g.user_id)
+        if results:
+            # Scan exists in database - return completed status
+            return jsonify({
+                'status': 'completed',
+                'scan_id': scan_id,
+                'progress': 100
+            })
+    
+    logger.warning(f"Scan status not found for scan_id: {scan_id}")
+    logger.info(f"Available scan IDs: {list(scan_status.keys())}")
+    return jsonify({
+        'error': 'Scan not found. The database may have been reset. Please start a new scan.',
+        'scan_id': scan_id
+    }), 404
 
 @app.route('/api/scan/<scan_id>/results', methods=['GET'])
 def get_scan_results(scan_id):
     """Get results of a completed scan"""
-    if scan_id not in scan_results:
-        return jsonify({'error': 'Results not found'}), 404
+    # Check in-memory first
+    if scan_id in scan_results:
+        return jsonify(scan_results[scan_id])
     
-    results = scan_results[scan_id]
+    # Fallback to database
+    if not hasattr(g, 'user_id'):
+        return jsonify({'error': 'Authentication required'}), 401
     
-    # Convert datetime objects to strings for JSON serialization
-    results_copy = results.copy()
+    results = ScanManager.get_scan_details(scan_id, g.user_id)
+    if results:
+        logger.info(f"Retrieved scan {scan_id} from database for user {g.user_id}")
+        return jsonify(results)
     
-    # Only convert scan_time if it's a datetime object
-    if hasattr(results['scan_time'], 'isoformat'):
-        results_copy['scan_time'] = results['scan_time'].isoformat()
-    
-    # Convert finding timestamps (only if datetime objects)
-    for finding in results_copy['findings']:
-        if hasattr(finding['timestamp'], 'isoformat'):
-            finding['timestamp'] = finding['timestamp'].isoformat()
-    
-    return jsonify(results_copy)
+    logger.warning(f"Scan results not found for scan_id: {scan_id}")
+    return jsonify({'error': 'Results not found'}), 404
 
 @app.route('/api/scan/<scan_id>/report', methods=['GET'])
 def download_report(scan_id):
     """Download HTML report"""
-    if scan_id not in scan_results:
-        return jsonify({'error': 'Report not found'}), 404
+    report_path = None
     
-    report_path = scan_results[scan_id]['report_path']
+    # Check in-memory first
+    if scan_id in scan_results:
+        report_path = scan_results[scan_id].get('report_path')
+    else:
+        # Fallback to database
+        if not hasattr(g, 'user_id'):
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        results = ScanManager.get_scan_details(scan_id, g.user_id)
+        if results:
+            report_path = results.get('report_path')
+    
+    if not report_path:
+        return jsonify({'error': 'Report not found'}), 404
     
     if not os.path.exists(report_path):
         return jsonify({'error': 'Report file not found'}), 404
@@ -1095,10 +1191,7 @@ def get_scan_from_history(scan_id):
     if not scan:
         return jsonify({'error': 'Scan not found'}), 404
     
-    # Convert datetime to string
-    if 'scan_time' in scan and hasattr(scan['scan_time'], 'isoformat'):
-        scan['scan_time'] = scan['scan_time'].isoformat()
-    
+    # Custom JSON provider handles datetime serialization automatically
     return jsonify(scan)
 
 @app.route('/api/scans/all', methods=['GET'])
@@ -1118,7 +1211,7 @@ def list_scans():
             scan_info['risk_score'] = results['risk_score']
             scan_info['risk_level'] = results['risk_level']
             scan_info['findings_count'] = len(results['findings'])
-            scan_info['scan_time'] = results['scan_time'].isoformat()
+            scan_info['scan_time'] = results['scan_time']  # Custom JSON provider handles datetime
         
         scans.append(scan_info)
     

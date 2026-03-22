@@ -41,6 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Create checkout session - cookie is sent automatically by browser
             console.log('Creating checkout session...');
+            console.log('Session token present:', !!sessionToken);
+            
             const headers = { 'Content-Type': 'application/json' };
             if (sessionToken) {
                 headers['Authorization'] = sessionToken;
@@ -53,19 +55,35 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             
             console.log('Response status:', response.status);
-            const data = await response.json();
-            console.log('Response data:', data);
             
             if (response.status === 401) {
-                // Not logged in or session expired - redirect to login, come back to /pay after
-                console.log('Auth required, redirecting to login');
-                window.location.href = '/login?next=/pay';
+                // Not logged in - go straight to Discord OAuth
+                console.log('Not authenticated - redirecting to Discord OAuth...');
+                const loginResp = await fetch('/api/auth/discord/login?next=/pay');
+                const loginData = await loginResp.json();
+                console.log('Discord OAuth URL:', loginData.auth_url ? 'received' : 'missing');
+                
+                if (loginData.auth_url) {
+                    // Redirect to Discord for authentication
+                    window.location.href = loginData.auth_url;
+                } else {
+                    // Fallback to login page if OAuth not configured
+                    console.error('Discord OAuth not configured');
+                    errorDiv.textContent = 'Authentication system not configured. Please contact support.';
+                    errorDiv.classList.add('show');
+                    purchaseBtn.disabled = false;
+                    btnText.classList.remove('hidden');
+                    btnLoader.classList.add('hidden');
+                }
                 return;
             }
             
+            const data = await response.json();
+            console.log('Response data:', data);
+            
             if (response.ok && data.checkout_url) {
                 // Redirect to LemonSqueezy checkout page
-                console.log('Redirecting to checkout:', data.checkout_url);
+                console.log('Redirecting to LemonSqueezy checkout...');
                 window.location.href = data.checkout_url;
             } else {
                 // Show error message
