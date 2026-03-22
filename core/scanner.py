@@ -16,16 +16,14 @@ import sys
 # Selenium for headless browser (bypass Cloudflare/bot protection)
 try:
     from selenium import webdriver
-    from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
-    from webdriver_manager.chrome import ChromeDriverManager
     SELENIUM_AVAILABLE = True
 except ImportError:
     SELENIUM_AVAILABLE = False
-    print("Warning: Selenium not available. Install with: pip install selenium webdriver-manager")
+    print("Warning: Selenium not available. Install with: pip install selenium")
 
 # Safe print function that handles encoding errors
 def safe_print(text):
@@ -113,8 +111,9 @@ class SecurityScanner:
             # Enable Performance logging to capture network headers
             chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
             
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Use Selenium Manager (auto-downloads correct ChromeDriver version)
+            # No need for webdriver-manager - Selenium 4.6+ handles this automatically
+            self.driver = webdriver.Chrome(options=chrome_options)
             self.driver.set_page_load_timeout(15)
            
             # Enable Chrome DevTools Protocol Network domain to capture HTTP headers
