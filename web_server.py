@@ -85,7 +85,7 @@ LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
 LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
 # Static file versioning for cache busting
-STATIC_VERSION = '20260321175000'  # Update this when static files change
+STATIC_VERSION = '20260322003000'  # Update this when static files change
 
 # Session configuration - auto-detect production HTTPS
 is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')

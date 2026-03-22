@@ -25,9 +25,11 @@ async function checkAuth() {
         
         // Check guild membership
         await checkGuildAccess();
+        return true;
     } else {
         // Redirect to login
         window.location.href = '/login';
+        return false;
     }
 }
 
@@ -147,9 +149,9 @@ let pollInterval = null;
 const API_BASE = window.location.origin;
 
 // ==================== INITIALIZATION ====================
-document.addEventListener('DOMContentLoaded', function() {
-    // Check authentication first
-    checkAuth();
+document.addEventListener('DOMContentLoaded', async function() {
+    // Check authentication first - MUST complete before any API calls
+    await checkAuth();
     
     // Check system info (database type)
     checkSystemInfo();
@@ -165,7 +167,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set up access modal close button
     document.getElementById('closeModalBtn')?.addEventListener('click', closeAccessDeniedModal);
     
-    // Load recent scans
+    // Load recent scans (only after auth is confirmed)
     loadRecentScans();
     
     // Set up form handler
