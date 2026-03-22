@@ -28,5 +28,5 @@ COPY . .
 # Expose port (Railway will set PORT env var)
 EXPOSE 8080
 
-# Run gunicorn with config file to hide server header
-CMD ["gunicorn", "web_server:app", "-c", "gunicorn_config.py"]
+# Run start script which launches both web server and Discord bot
+CMD ["python", "start.py"]

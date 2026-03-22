@@ -46,6 +46,9 @@ env/
 # Environment variables
 .env
 
+# Bot sync tracking
+.bot_sync_tracker.json
+
 # Test outputs
 test_*.html
 scan_*.html

@@ -85,12 +85,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
-
-        errorDiv.classList.add('show');
-        
-        // Re-enable button
-        purchaseBtn.disabled = false;
-        btnText.classList.remove('hidden');
-        btnLoader.classList.add('hidden');
-    }
-});

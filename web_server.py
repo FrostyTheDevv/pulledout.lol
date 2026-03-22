@@ -783,23 +783,9 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
 
 @app.route('/')
 def index():
-    """Main dashboard page - requires authentication and access"""
-    # Check if user has session token
-    session_token = request.cookies.get('sessionToken')
-    
-    if not session_token:
-        # No session, redirect to signup
-        return redirect('/signup')
-    
-    # Verify session
-    user_info = UserManager.verify_session(session_token)
-    if not user_info:
-        # Invalid session, redirect to signup
-        response = make_response(redirect('/signup'))
-        response.set_cookie('sessionToken', '', expires=0)
-        return response
-    
-    # Render dashboard - frontend will check guild/role access
+    """Main dashboard page - frontend handles authentication via localStorage"""
+    # Just render the page - frontend JavaScript will check localStorage
+    # and verify session via API calls with Authorization header
     return render_template('index.html')
 
 @app.route('/login')

@@ -23,38 +23,72 @@ DATABASE_FILE = 'sawsap.db'
 
 # SQLAlchemy Models
 
-class User(db.Model):
-    """User account model - Discord OAuth only"""
-    __tablename__ = 'users'
+class UserAuth(db.Model):
+    """User authentication model - stores auth credentials"""
+    __tablename__ = 'user_auth'
     
     id = db.Column(db.Integer, primary_key=True)
-    discord_id = db.Column(db.String(100), unique=True, nullable=False, index=True)  # Discord user ID
-    discord_username = db.Column(db.String(100), nullable=False)  # Discord username
-    discord_avatar = db.Column(db.String(255))  # Discord avatar URL
+    discord_id = db.Column(db.String(100), unique=True, nullable=False, index=True)  # Discord user ID for auth
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    last_login = db.Column(db.DateTime)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     
     # Relationships
-    sessions = db.relationship('Session', backref='user', lazy='dynamic', cascade='all, delete-orphan')
-    scans = db.relationship('Scan', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+    profile = db.relationship('UserProfile', backref='auth', uselist=False, cascade='all, delete-orphan')
+    sessions = db.relationship('Session', backref='user_auth', lazy='dynamic', cascade='all, delete-orphan')
+    scans = db.relationship('Scan', backref='user_auth', lazy='dynamic', cascade='all, delete-orphan')
     
-    def __init__(self, discord_id: str, discord_username: str, discord_avatar: str = None, **kwargs):
-        """Initialize User model with Discord data"""
-        super(User, self).__init__(
+    def __init__(self, discord_id: str, **kwargs):
+        """Initialize UserAuth model"""
+        super(UserAuth, self).__init__(
             discord_id=discord_id,
+            **kwargs
+        )
+
+
+class UserProfile(db.Model):
+    """User profile model - stores display information"""
+    __tablename__ = 'user_profile'
+    
+    id = db.Column(db.Integer, db.ForeignKey('user_auth.id'), primary_key=True)
+    discord_username = db.Column(db.String(100), nullable=False)  # Discord username for display
+    discord_avatar = db.Column(db.String(255))  # Discord avatar URL
+    last_login = db.Column(db.DateTime)
+    
+    def __init__(self, id: int, discord_username: str, discord_avatar: str = None, **kwargs):
+        """Initialize UserProfile model"""
+        super(UserProfile, self).__init__(
+            id=id,
             discord_username=discord_username,
             discord_avatar=discord_avatar,
             **kwargs
         )
 
 
+# Legacy User model for backward compatibility (view only)
+from sqlalchemy import select
+
+class User(db.Model):
+    """Legacy user view - combines auth and profile for compatibility"""
+    __tablename__ = 'users_view'
+    __table_args__ = {'info': {'skip_autogenerate': True}}  # Don't create migrations for views
+    
+    id = db.Column(db.Integer, primary_key=True)
+    discord_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    discord_username = db.Column(db.String(100), nullable=False)
+    discord_avatar = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_login = db.Column(db.DateTime)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    
+    # Note: This is a compatibility shim. Use UserAuth and UserProfile separately for new code.
+
+
 class Session(db.Model):
-    """User session model"""
+    """User session model - part of authentication"""
     __tablename__ = 'sessions'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user_auth.id'), nullable=False, index=True)
     session_token = db.Column(db.String(64), unique=True, nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
@@ -74,7 +108,7 @@ class Scan(db.Model):
     __tablename__ = 'scans'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user_auth.id'), nullable=False, index=True)
     scan_id = db.Column(db.String(36), unique=True, nullable=False, index=True)
     target_url = db.Column(db.String(500), nullable=False)
     scan_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -121,10 +155,12 @@ def init_database(app):
             logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI'][:50]}...")
             
             # Log user count for debugging
-            user_count = User.query.count()
-            logger.info(f"Users in database: {user_count}")
+            auth_count = UserAuth.query.count()
+            profile_count = UserProfile.query.count()
+            logger.info(f"User auth records: {auth_count}, User profiles: {profile_count}")
             
             print("[OK] Database initialized successfully")
+            print(f"[OK] Database structure: UserAuth (auth data) + UserProfile (display data)")
         except Exception as e:
             # Tables may already exist from previous deployments
             error_msg = str(e)
@@ -145,24 +181,39 @@ class UserManager:
         logger.info(f"Discord OAuth - Processing user: {discord_username} (ID: {discord_id})")
         
         try:
-            # Check if user exists
-            user = User.query.filter_by(discord_id=discord_id).first()
+            # Check if user auth exists
+            user_auth = UserAuth.query.filter_by(discord_id=discord_id).first()
             
-            if user:
-                # Update existing user info
-                user.discord_username = discord_username
-                user.discord_avatar = discord_avatar
-                user.last_login = datetime.utcnow()
+            if user_auth:
+                # Update existing profile info
+                if user_auth.profile:
+                    user_auth.profile.discord_username = discord_username
+                    user_auth.profile.discord_avatar = discord_avatar
+                    user_auth.profile.last_login = datetime.utcnow()
+                else:
+                    # Create profile if it doesn't exist (shouldn't happen)
+                    profile = UserProfile(
+                        id=user_auth.id,
+                        discord_username=discord_username,
+                        discord_avatar=discord_avatar
+                    )
+                    profile.last_login = datetime.utcnow()
+                    db.session.add(profile)
                 logger.info(f"Updated existing Discord user: {discord_username}")
             else:
-                # Create new user
-                user = User(
-                    discord_id=discord_id,
+                # Create new user auth
+                user_auth = UserAuth(discord_id=discord_id)
+                db.session.add(user_auth)
+                db.session.flush()  # Get the ID
+                
+                # Create profile
+                profile = UserProfile(
+                    id=user_auth.id,
                     discord_username=discord_username,
                     discord_avatar=discord_avatar
                 )
-                user.last_login = datetime.utcnow()
-                db.session.add(user)
+                profile.last_login = datetime.utcnow()
+                db.session.add(profile)
                 logger.info(f"Created new Discord user: {discord_username}")
             
             db.session.commit()
@@ -173,7 +224,7 @@ class UserManager:
             
             # Store session
             session = Session(
-                user_id=user.id,
+                user_id=user_auth.id,
                 session_token=session_token,
                 expires_at=expires_at
             )
@@ -183,7 +234,7 @@ class UserManager:
             logger.info(f"Discord auth successful for user: {discord_username}")
             return {
                 'success': True,
-                'user_id': user.id,
+                'user_id': user_auth.id,
                 'username': discord_username,
                 'discord_id': discord_id,
                 'discord_avatar': discord_avatar,
@@ -200,7 +251,7 @@ class UserManager:
     def verify_session(session_token: str) -> Optional[Dict]:
         """Verify session token and return user info"""
         try:
-            # Get session with user
+            # Get session with user auth
             session = Session.query.filter_by(session_token=session_token).first()
             
             if not session:
@@ -213,14 +264,19 @@ class UserManager:
                 return None
             
             # Check if user is active
-            if not session.user.is_active:
+            if not session.user_auth.is_active:
+                return None
+            
+            # Get profile info
+            profile = session.user_auth.profile
+            if not profile:
                 return None
             
             return {
-                'user_id': session.user.id,
-                'username': session.user.discord_username,
-                'discord_id': session.user.discord_id,
-                'discord_avatar': session.user.discord_avatar
+                'user_id': session.user_auth.id,
+                'username': profile.discord_username,
+                'discord_id': session.user_auth.discord_id,
+                'discord_avatar': profile.discord_avatar
             }
             
         except Exception as e:
@@ -244,9 +300,9 @@ class UserManager:
     def delete_account(user_id: int) -> bool:
         """Delete user account and all associated data"""
         try:
-            user = User.query.get(user_id)
-            if user:
-                db.session.delete(user)  # Cascade deletes sessions and scans
+            user_auth = UserAuth.query.get(user_id)
+            if user_auth:
+                db.session.delete(user_auth)  # Cascade deletes profile, sessions and scans
                 db.session.commit()
             return True
         except Exception as e:
