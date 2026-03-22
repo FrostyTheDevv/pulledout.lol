@@ -1,5 +1,16 @@
 // Payment Page JavaScript
 
+function getCookie(name) {
+    const cookies = document.cookie.split(';');
+    for (let c of cookies) {
+        c = c.trim();
+        if (c.startsWith(name + '=')) {
+            return c.substring(name.length + 1);
+        }
+    }
+    return null;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const purchaseBtn = document.getElementById('purchaseBtn');
     
@@ -25,8 +36,8 @@ document.addEventListener('DOMContentLoaded', () => {
         btnLoader.classList.remove('hidden');
         
         try {
-            // Get session token from localStorage
-            const sessionToken = localStorage.getItem('sessionToken');
+            // Get session token from cookie or localStorage
+            const sessionToken = getCookie('sessionToken') || localStorage.getItem('sessionToken');
             console.log('Session token exists:', !!sessionToken);
             
             if (!sessionToken) {

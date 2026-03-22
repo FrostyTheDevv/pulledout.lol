@@ -469,6 +469,20 @@ body {
     }
 }
 
+/* Denied page styles */
+.auth-container.denied-container {
+    max-width: 520px;
+}
+
+.paid-notice.denied-notice {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.06);
+}
+
+.paid-notice.denied-notice .notice-header {
+    color: #ef4444;
+}
+
 /* Contact info links (denied page) */
 .contact-info a {
     color: var(--text-primary);
