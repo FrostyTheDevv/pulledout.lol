@@ -14,11 +14,27 @@ function getCSRFToken() {
 let sessionToken = null;
 let currentUsername = null;
 
+// Read cookie by name
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+    return null;
+}
+
 // Check authentication on page load
 async function checkAuth() {
-    // Re-read from localStorage every time (callback page may have just set these)
-    sessionToken = localStorage.getItem('sessionToken');
-    currentUsername = localStorage.getItem('username');
+    // Read from cookies (set by server on login redirect)
+    // Fall back to localStorage for backwards compatibility
+    sessionToken = getCookie('sessionToken') || localStorage.getItem('sessionToken');
+    currentUsername = getCookie('username') || localStorage.getItem('username');
+    
+    // Sync to localStorage so API calls use Authorization header consistently
+    if (sessionToken) localStorage.setItem('sessionToken', sessionToken);
+    if (currentUsername) localStorage.setItem('username', currentUsername);
+    
+    const discordAvatar = getCookie('discordAvatar');
+    if (discordAvatar) localStorage.setItem('discordAvatar', discordAvatar);
     
     if (sessionToken && currentUsername) {
         // Show user greeting
@@ -97,10 +113,19 @@ function disableScanForm() {
     if (maxPages) maxPages.disabled = true;
 }
 
-// Handle authentication errors
-function handleAuthError() {
+// Clear all auth data (localStorage + cookies)
+function clearAuthData() {
     localStorage.removeItem('sessionToken');
     localStorage.removeItem('username');
+    localStorage.removeItem('discordAvatar');
+    document.cookie = 'sessionToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'username=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'discordAvatar=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+}
+
+// Handle authentication errors
+function handleAuthError() {
+    clearAuthData();
     window.location.href = '/login';
 }
 
@@ -139,8 +164,7 @@ function logout() {
             'X-CSRF-Token': getCSRFToken()
         }
     }).finally(() => {
-        localStorage.removeItem('sessionToken');
-        localStorage.removeItem('username');
+        clearAuthData();
         window.location.href = '/login';
     });
 }

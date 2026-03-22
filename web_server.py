@@ -85,7 +85,7 @@ LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
 LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
 # Static file versioning for cache busting
-STATIC_VERSION = '20260322003500'  # Update this when static files change
+STATIC_VERSION = '20260322004000'  # Update this when static files change
 
 # Session configuration - auto-detect production HTTPS
 is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
@@ -439,7 +439,8 @@ def login_required(f):
     """Decorator to require authentication for endpoints"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        session_token = request.headers.get('Authorization')
+        # Check Authorization header first, then fall back to cookie
+        session_token = request.headers.get('Authorization') or request.cookies.get('sessionToken')
         if not session_token:
             return jsonify({'error': 'Authentication required'}), 401
         
@@ -462,7 +463,8 @@ def guild_required(f):
     """Decorator to require both authentication AND guild membership"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        session_token = request.headers.get('Authorization')
+        # Check Authorization header first, then fall back to cookie
+        session_token = request.headers.get('Authorization') or request.cookies.get('sessionToken')
         if not session_token:
             return jsonify({'error': 'Authentication required', 'requires_auth': True}), 401
         
@@ -589,33 +591,22 @@ def discord_callback():
             else:
                 logger.info(f"User {discord_username} has access - redirecting to dashboard")
             
-            # Render success page with token and redirect - no cache, no external resources
-            # IMPORTANT: No meta refresh - it races with JavaScript and can redirect before localStorage is set
-            response = make_response(f'''<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <title>Login Successful</title>
-    <style>
-        body {{ font-family: sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }}
-    </style>
-    <script>
-        // Store auth data in localStorage FIRST, then redirect
-        localStorage.setItem('sessionToken', '{result["session_token"]}');
-        localStorage.setItem('username', '{result["username"]}');
-        localStorage.setItem('discordAvatar', '{result.get("discord_avatar", "") or ""}');
-        
-        // Redirect after localStorage is set
-        window.location.replace('{redirect_url}');
-    </script>
-</head>
-<body>
-    <p>Logging you in...</p>
-</body>
-</html>''')
+            # Server-side redirect with session token in secure cookie
+            # (inline JS was blocked by CSP script-src 'self')
+            response = make_response(redirect(redirect_url))
+            
+            # Set auth cookies
+            cookie_kwargs = {
+                'httponly': False,  # JS needs to read these for API calls
+                'samesite': 'Lax',
+                'secure': is_production,
+                'max_age': 7 * 24 * 60 * 60,  # 7 days
+                'path': '/'
+            }
+            response.set_cookie('sessionToken', result['session_token'], **cookie_kwargs)
+            response.set_cookie('username', result['username'], **cookie_kwargs)
+            response.set_cookie('discordAvatar', result.get('discord_avatar', '') or '', **cookie_kwargs)
+            
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
@@ -647,10 +638,14 @@ def login():
 @login_required
 def logout():
     """End user session"""
-    session_token = request.headers.get('Authorization')
+    session_token = request.headers.get('Authorization') or request.cookies.get('sessionToken')
     if session_token:
         UserManager.logout(session_token)
-    return jsonify({'success': True, 'message': 'Logged out successfully'})
+    response = jsonify({'success': True, 'message': 'Logged out successfully'})
+    response.set_cookie('sessionToken', '', expires=0, path='/')
+    response.set_cookie('username', '', expires=0, path='/')
+    response.set_cookie('discordAvatar', '', expires=0, path='/')
+    return response
 
 @app.route('/api/auth/me', methods=['GET'])
 @login_required
