@@ -36,25 +36,20 @@ document.addEventListener('DOMContentLoaded', () => {
         btnLoader.classList.remove('hidden');
         
         try {
-            // Get session token from cookie or localStorage
+            // Get session token from cookie or localStorage (if available, send as header too)
             const sessionToken = getCookie('sessionToken') || localStorage.getItem('sessionToken');
-            console.log('Session token exists:', !!sessionToken);
             
-            if (!sessionToken) {
-                // User not logged in - redirect to login
-                console.log('No session token, redirecting to login');
-                window.location.href = '/login';
-                return;
+            // Create checkout session - cookie is sent automatically by browser
+            console.log('Creating checkout session...');
+            const headers = { 'Content-Type': 'application/json' };
+            if (sessionToken) {
+                headers['Authorization'] = sessionToken;
             }
             
-            // Create checkout session with LemonSqueezy
-            console.log('Creating checkout session...');
             const response = await fetch('/api/payment/create-checkout', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': sessionToken
-                }
+                headers: headers,
+                credentials: 'same-origin'
             });
             
             console.log('Response status:', response.status);
@@ -62,8 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('Response data:', data);
             
             if (response.status === 401) {
-                // Session expired - redirect to login
-                console.log('Session expired, redirecting to login');
+                // Not logged in or session expired - redirect to login
+                console.log('Auth required, redirecting to login');
                 window.location.href = '/login';
                 return;
             }
