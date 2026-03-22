@@ -22,12 +22,23 @@ from functools import wraps
 from dotenv import load_dotenv
 from typing import Optional
 
+# Try to import Redis (optional dependency)
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Log Redis availability
+if not REDIS_AVAILABLE:
+    logger.warning("Redis package not installed - multi-worker scan storage will use fallback")
 
 # WSGI middleware to remove Server header
 class RemoveServerHeaderMiddleware:
@@ -391,9 +402,136 @@ def add_security_headers(response):
     
     return response
 
-# Store scan results in memory (use database for production)
-scan_results = {}
-scan_status = {}
+# Redis-backed storage for scan results and status (multi-worker compatible)
+class RedisScanStorage:
+    """Redis wrapper for scan storage with fallback to in-memory dict"""
+    
+    def __init__(self, redis_url=None):
+        self.redis_client = None
+        self.fallback_dict = {}
+        
+        try:
+            if redis_url and REDIS_AVAILABLE:
+                logger.info(f"Attempting to connect to Redis: {redis_url[:15]}...")
+                self.redis_client = redis.from_url(
+                    redis_url,
+                    decode_responses=True,
+                    socket_connect_timeout=5,
+                    socket_timeout=5,
+                    retry_on_timeout=True
+                )
+                # Test connection
+                self.redis_client.ping()
+                logger.info("✓ Redis connected successfully for scan storage (multi-worker enabled)")
+            elif redis_url and not REDIS_AVAILABLE:
+                logger.error("✗ REDIS_URL is set but redis package not installed. Run: pip install redis")
+            else:
+                logger.warning("⚠ No REDIS_URL provided, using in-memory storage (not multi-worker safe)")
+        except Exception as e:
+            logger.error(f"✗ Redis connection failed: {e}. Falling back to in-memory storage")
+            self.redis_client = None
+    
+    def __setitem__(self, key, value):
+        """Store value with automatic JSON serialization"""
+        try:
+            if self.redis_client:
+                # Serialize to JSON and store in Redis with 24h expiration
+                json_value = json.dumps(value, default=str)
+                self.redis_client.setex(f"scan:{key}", 86400, json_value)
+            else:
+                self.fallback_dict[key] = value
+        except Exception as e:
+            logger.error(f"Redis set error: {e}")
+            self.fallback_dict[key] = value
+    
+    def __getitem__(self, key):
+        """Retrieve value with automatic JSON deserialization"""
+        try:
+            if self.redis_client:
+                value = self.redis_client.get(f"scan:{key}")
+                if value is None:
+                    raise KeyError(key)
+                return json.loads(value)
+            else:
+                return self.fallback_dict[key]
+        except KeyError:
+            raise
+        except Exception as e:
+            logger.error(f"Redis get error: {e}")
+            if key in self.fallback_dict:
+                return self.fallback_dict[key]
+            raise KeyError(key)
+    
+    def __contains__(self, key):
+        """Check if key exists"""
+        try:
+            if self.redis_client:
+                return bool(self.redis_client.exists(f"scan:{key}"))  # type: ignore
+            else:
+                return key in self.fallback_dict
+        except Exception as e:
+            logger.error(f"Redis contains error: {e}")
+            return key in self.fallback_dict
+    
+    def get(self, key, default=None):
+        """Get with default value"""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+    
+    def keys(self):
+        """Get all keys"""
+        try:
+            if self.redis_client:
+                # Get all scan keys and strip the "scan:" prefix
+                redis_keys = self.redis_client.keys("scan:*")  # type: ignore
+                return [k.replace("scan:", "", 1) for k in redis_keys]  # type: ignore
+            else:
+                return list(self.fallback_dict.keys())
+        except Exception as e:
+            logger.error(f"Redis keys error: {e}")
+            return list(self.fallback_dict.keys())
+    
+    def values(self):
+        """Get all values"""
+        try:
+            if self.redis_client:
+                keys = self.keys()
+                return [self[k] for k in keys]
+            else:
+                return list(self.fallback_dict.values())
+        except Exception as e:
+            logger.error(f"Redis values error: {e}")
+            return list(self.fallback_dict.values())
+    
+    def items(self):
+        """Get all items as (key, value) tuples"""
+        try:
+            if self.redis_client:
+                keys = self.keys()
+                return [(k, self[k]) for k in keys]
+            else:
+                return list(self.fallback_dict.items())
+        except Exception as e:
+            logger.error(f"Redis items error: {e}")
+            return list(self.fallback_dict.items())
+    
+    @property
+    def is_redis_connected(self):
+        """Check if Redis is currently connected"""
+        try:
+            if self.redis_client:
+                self.redis_client.ping()
+                return True
+        except:
+            pass
+        return False
+
+# Initialize Redis storage for scans
+REDIS_URL = os.environ.get('REDIS_URL')
+scan_results = RedisScanStorage(REDIS_URL)
+scan_status = RedisScanStorage(REDIS_URL)
 
 # Ensure reports directory exists
 REPORTS_DIR = 'reports'
@@ -1247,6 +1385,8 @@ def health_check():
         'environment': {
             'is_production': is_production,
             'database_type': 'PostgreSQL' if database_url else 'SQLite',
+            'redis_connected': scan_status.is_redis_connected,
+            'storage_type': 'Redis (multi-worker)' if scan_status.is_redis_connected else 'In-memory (single worker)'
         },
         'configuration': {
             'discord_oauth': {
@@ -1264,6 +1404,11 @@ def health_check():
                 'store_id': LEMONSQUEEZY_STORE_ID or 'NOT SET',
                 'product_id': LEMONSQUEEZY_PRODUCT_ID or 'NOT SET'
             },
+            'redis': {
+                'url_set': bool(REDIS_URL),
+                'connected': scan_status.is_redis_connected,
+                'status': 'Connected' if scan_status.is_redis_connected else 'Not connected (using fallback)'
+            },
             'static_version': STATIC_VERSION
         }
     }
@@ -1274,6 +1419,8 @@ def health_check():
         warnings.append('Discord OAuth not fully configured - login will not work')
     if not config_status['configuration']['payment']['configured']:
         warnings.append('Payment system not fully configured - purchases will not work')
+    if not scan_status.is_redis_connected:
+        warnings.append('Redis not connected - using in-memory storage (not multi-worker safe)')
     
     if warnings:
         config_status['warnings'] = warnings
