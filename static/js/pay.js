@@ -57,9 +57,9 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('Response data:', data);
             
             if (response.status === 401) {
-                // Not logged in or session expired - redirect to login
+                // Not logged in or session expired - redirect to login, come back to /pay after
                 console.log('Auth required, redirecting to login');
-                window.location.href = '/login';
+                window.location.href = '/login?next=/pay';
                 return;
             }
             

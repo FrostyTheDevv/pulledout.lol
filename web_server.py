@@ -85,7 +85,7 @@ LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
 LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
 # Static file versioning for cache busting
-STATIC_VERSION = '20260322011200'  # Update this when static files change
+STATIC_VERSION = '20260322011500'  # Update this when static files change
 
 # Session configuration - auto-detect production HTTPS
 is_production = os.environ.get('RAILWAY_ENVIRONMENT') is not None or os.environ.get('DATABASE_URL', '').startswith('postgresql://')
@@ -511,6 +511,14 @@ def discord_login():
     if not DISCORD_CLIENT_ID:
         return jsonify({'error': 'Discord OAuth not configured'}), 500
     
+    # Support 'next' param to redirect back after login
+    import urllib.parse
+    next_url = request.args.get('next', '/')
+    # Only allow relative paths to prevent open redirect
+    if not next_url.startswith('/'):
+        next_url = '/'
+    state = urllib.parse.quote(next_url)
+    
     # Build OAuth URL
     oauth_url = (
         f"{DISCORD_API_BASE}/oauth2/authorize"
@@ -518,6 +526,7 @@ def discord_login():
         f"&redirect_uri={DISCORD_REDIRECT_URI}"
         f"&response_type=code"
         f"&scope=identify"
+        f"&state={state}"
     )
     
     return jsonify({'auth_url': oauth_url})
@@ -578,7 +587,14 @@ def discord_callback():
             access_check = check_guild_membership(discord_id)
             
             # Determine redirect URL based on access status
-            redirect_url = '/'
+            import urllib.parse
+            next_url = request.args.get('state', '/')
+            next_url = urllib.parse.unquote(next_url)
+            # Only allow relative paths to prevent open redirect
+            if not next_url.startswith('/'):
+                next_url = '/'
+            
+            redirect_url = next_url
             if not access_check['has_access']:
                 # Check if user is denied (M.U role)
                 if access_check.get('is_denied', False):
@@ -589,7 +605,7 @@ def discord_callback():
                     redirect_url = '/pay'
                     logger.info(f"User {discord_username} redirected to /pay: {access_check['reason']}")
             else:
-                logger.info(f"User {discord_username} has access - redirecting to dashboard")
+                logger.info(f"User {discord_username} has access - redirecting to {redirect_url}")
             
             # Server-side redirect with session token in secure cookie
             # (inline JS was blocked by CSP script-src 'self')

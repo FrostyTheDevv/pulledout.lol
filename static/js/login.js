@@ -16,8 +16,10 @@ document.getElementById('discordLoginBtn').addEventListener('click', async () =>
     btnLoader.classList.remove('hidden');
     
     try {
-        // Get Discord OAuth URL from backend
-        const response = await fetch('/api/auth/discord/login');
+        // Get Discord OAuth URL from backend, forward 'next' param if present
+        const urlParams = new URLSearchParams(window.location.search);
+        const next = urlParams.get('next') || '/';
+        const response = await fetch(`/api/auth/discord/login?next=${encodeURIComponent(next)}`);
         const data = await response.json();
         
         if (response.ok && data.auth_url) {
