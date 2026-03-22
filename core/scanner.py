@@ -353,6 +353,22 @@ class SecurityScanner:
         from modules.http_security_detailed import detailed_http_analysis
         from modules.maximum_coverage import maximum_coverage_scan
         
+        # NEW: Advanced data extraction and vulnerability discovery modules
+        from modules.data_extraction import extract_all_data
+        from modules.exposed_files_scanner import scan_exposed_files
+        from modules.cloud_storage_detection import detect_cloud_storage
+        from modules.database_exposure import check_database_exposure
+        from modules.api_testing import discover_and_test_apis
+        
+        # NEW: Active exploitation testing modules (penetration testing)
+        from modules.active_sql_injection import test_sql_injection
+        from modules.active_xss_testing import test_xss_vulnerabilities
+        from modules.active_auth_testing import test_authentication_bypass
+        from modules.active_rce_testing import test_command_injection
+        from modules.active_data_harvest import harvest_sensitive_data
+        from modules.active_file_upload_testing import test_file_uploads
+        from modules.active_session_hijacking import test_session_hijacking
+        
         # Run checks on FIRST page only (for SSL, discovery, etc.)
         original_url = self.target_url
         
@@ -373,6 +389,38 @@ class SecurityScanner:
         
         print("[*] Testing HTTP methods and server config...")
         check_server_configuration(self)
+        
+        # NEW: Advanced data extraction and discovery (run once)
+        print("[*] Scanning for exposed sensitive files...")
+        scan_exposed_files(self)
+        
+        print("[*] Detecting cloud storage exposure...")
+        detect_cloud_storage(self)
+        
+        print("[*] Checking for exposed databases...")
+        check_database_exposure(self)
+        
+        # NEW: Active exploitation testing (penetration testing)
+        print("[*] Testing for SQL injection vulnerabilities...")
+        test_sql_injection(self)
+        
+        print("[*] Testing for XSS vulnerabilities...")
+        test_xss_vulnerabilities(self)
+        
+        print("[*] Testing authentication and authorization...")
+        test_authentication_bypass(self)
+        
+        print("[*] Testing for command injection and RCE...")
+        test_command_injection(self)
+        
+        print("[*] Harvesting sensitive data and credentials...")
+        harvest_sensitive_data(self)
+        
+        print("[*] Testing file upload vulnerabilities...")
+        test_file_uploads(self)
+        
+        print("[*] Testing session hijacking vectors...")
+        test_session_hijacking(self)
         
         # Run per-page checks on ALL discovered pages
         for page_num, page_url in enumerate(pages_to_scan, 1):
@@ -403,6 +451,12 @@ class SecurityScanner:
             
             safe_print(f"    ├─ Form analysis...")
             check_input_forms_security(self)
+            
+            safe_print(f"    ├─ Deep data extraction...")
+            extract_all_data(self)
+            
+            safe_print(f"    ├─ API endpoint discovery & testing...")
+            discover_and_test_apis(self)
             
             safe_print(f"    ├─ Client-side security...")
             check_client_side_security(self)
