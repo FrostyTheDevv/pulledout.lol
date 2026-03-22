@@ -126,7 +126,7 @@ LEMONSQUEEZY_STORE_ID = os.environ.get('LEMONSQUEEZY_STORE_ID')
 LEMONSQUEEZY_PRODUCT_ID = os.environ.get('LEMONSQUEEZY_PRODUCT_ID')
 
 # Static file versioning for cache busting
-STATIC_VERSION = '20260322215400'  # Update this when static files change
+STATIC_VERSION = '20260322220000'  # Update this when static files change
 
 # Session configuration - use production detection from above
 app.config['SESSION_COOKIE_SECURE'] = is_production  # True in production (HTTPS), False in dev

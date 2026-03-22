@@ -469,8 +469,19 @@ function displayResults(results) {
         'Discovery / Hygiene'
     ];
     
+    // Calculate category_summary if not provided
+    let categorySummary = results.category_summary;
+    if (!categorySummary && results.findings) {
+        categorySummary = {};
+        results.findings.forEach(f => {
+            if (f.category) {
+                categorySummary[f.category] = (categorySummary[f.category] || 0) + 1;
+            }
+        });
+    }
+    
     categoryOrder.forEach(category => {
-        const count = results.category_summary[category] || 0;
+        const count = categorySummary?.[category] || 0;
         const categoryBox = document.createElement('div');
         categoryBox.className = 'category-box';
         categoryBox.innerHTML = `
@@ -484,7 +495,7 @@ function displayResults(results) {
     const tableBody = document.getElementById('findingsTableBody');
     tableBody.innerHTML = '';
     
-    if (results.findings.length === 0) {
+    if (!results.findings || results.findings.length === 0) {
         tableBody.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted); grid-column: 1 / -1;">No security issues found.</div>';
     } else {
         results.findings.forEach(finding => {
