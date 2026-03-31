@@ -43,6 +43,7 @@ env/
 !examples/*.html
 !templates/*.html
 !static/**/*.html
+!frontend/index.html
 
 # Logs
 *.log
