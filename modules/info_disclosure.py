@@ -99,34 +99,50 @@ def check_information_disclosure(scanner):
             r'debug|test|staging': 'Debug/test reference',
         }
         
-        found_comment_issues = set()
+        found_comment_issues = []
         for comment in comments:
-            comment_text = str(comment).lower()
-            for pattern, description in  sensitive_comment_patterns.items():
-                if re.search(pattern, comment_text, re.IGNORECASE) and description not in found_comment_issues:
-                    scanner.add_finding(
-                        severity='LOW',
-                        category='Information Disclosure',
-                        title='Sensitive information in HTML comments',
-                        description=f'{description} found in HTML comments',
-                        url=scanner.target_url,
-                        remediation='Remove sensitive comments before deploying to production'
-                    )
-                    found_comment_issues.add(description)
+            comment_text = str(comment).strip()
+            for pattern, description in sensitive_comment_patterns.items():
+                if re.search(pattern, comment_text, re.IGNORECASE):
+                    found_comment_issues.append({
+                        'type': description,
+                        'comment': comment_text[:200]  # Truncate to 200 chars
+                    })
+                    break
+        
+        if found_comment_issues:
+            scanner.add_finding(
+                severity='LOW',
+                category='Information Disclosure',
+                title='Sensitive information in HTML comments',
+                description=f'Found {len(found_comment_issues)} HTML comments with sensitive information',
+                url=scanner.target_url,
+                remediation='Remove sensitive comments before deploying to production',
+                evidence={
+                    'type': 'html_comments',
+                    'count': len(found_comment_issues),
+                    'comments': found_comment_issues
+                }
+            )
         
         # ==================== EMAIL HARVESTING ====================
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
         emails = re.findall(email_pattern, response.text)
         
         if emails:
-            unique_emails = list(set(emails))[:5]  # Limit to 5 examples
+            unique_emails = list(set(emails))
             scanner.add_finding(
                 severity='INFO',
                 category='Information Disclosure',
                 title='Email addresses exposed in source',
-                description=f'Found {len(unique_emails)} email address(es) in HTML: {", ".join(unique_emails[:3])}',
+                description=f'Found {len(unique_emails)} unique email address(es) exposed in HTML source',
                 url=scanner.target_url,
-                remediation='Consider obfuscating email addresses to prevent harvesting by bots'
+                remediation='Consider obfuscating email addresses or using contact forms to prevent harvesting by bots',
+                evidence={
+                    'type': 'emails',
+                    'count': len(unique_emails),
+                    'emails': unique_emails
+                }
             )
         
         # ==================== INTERNAL IP ADDRESSES ====================
@@ -134,45 +150,64 @@ def check_information_disclosure(scanner):
             r'\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',
             r'\b172\.(1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3}\b',
             r'\b192\.168\.\d{1,3}\.\d{1,3}\b',
-            r'\b127\.0\.0\.1\b',
             r'\blocalhost\b',
+            r'\b127\.0\.0\.1\b'
         ]
         
+        found_ips = []
         for pattern in internal_ip_patterns:
             matches = re.findall(pattern, response.text)
-            if matches:
-                scanner.add_finding(
-                    severity='LOW',
-                    category='Information Disclosure',
-                    title='Internal IP address exposed',
-                    description=f'Internal IP address found in content: {matches[0]}',
-                    url=scanner.target_url,
-                    remediation='Remove references to internal IP addresses and hostnames'
-                )
-                break
+            found_ips.extend(matches)
         
-        # ==================== VERSION STRINGS ====================
+        if found_ips:
+            unique_ips = list(set(found_ips))
+            scanner.add_finding(
+                severity='LOW',
+                category='Information Disclosure',
+                title='Internal IP addresses exposed',
+                description=f'Found {len(unique_ips)} internal IP address(es) or localhost references in content',
+                url=scanner.target_url,
+                remediation='Remove references to internal IP addresses and hostnames from production code',
+                evidence={
+                    'type': 'internal_ips',
+                    'count': len(unique_ips),
+                    'ips': unique_ips
+                }
+            )
+        
+        # ==================== VERSION DETECTION ====================
         version_patterns = {
-            r'wordpress[/\s-]+([\d\.]+)': 'WordPress version',
-            r'drupal[/\s-]+([\d\.]+)': 'Drupal version',
-            r'joomla[/\s-]+([\d\.]+)': 'Joomla version',
-            r'jquery[-/]([\d\.]+)': 'jQuery version',
-            r'angular[-/]([\d\.]+)': 'Angular version',
-            r'react[-/]([\d\.]+)': 'React version',
+            r'wordpress[/\s-]+([\d\.]+)': 'WordPress',
+            r'drupal[/\s-]+([\d\.]+)': 'Drupal',
+            r'joomla[/\s-]+([\d\.]+)': 'Joomla',
+            r'jquery[-/]([\d\.]+)': 'jQuery',
+            r'angular[-/]([\d\.]+)': 'Angular',
+            r'react[-/]([\d\.]+)': 'React',
         }
         
+        found_versions = []
         for pattern, tech_name in version_patterns.items():
             matches = re.findall(pattern, response.text, re.IGNORECASE)
             if matches:
-                scanner.add_finding(
-                    severity='INFO',
-                    category='Information Disclosure',
-                    title=f'{tech_name} detected',
-                    description=f'{tech_name} {matches[0]} identified in source',
-                    url=scanner.target_url,
-                    remediation='Keep software up to date and consider removing version information'
-                )
-                break
+                found_versions.append({
+                    'technology': tech_name,
+                    'version': matches[0]
+                })
+        
+        if found_versions:
+            scanner.add_finding(
+                severity='INFO',
+                category='Information Disclosure',
+                title=f'Technology versions detected',
+                description=f'Found {len(found_versions)} technology version(s) exposed in source code',
+                url=scanner.target_url,
+                remediation='Keep software up to date and consider removing version information to reduce attack surface',
+                evidence={
+                    'type': 'technology_versions',
+                    'count': len(found_versions),
+                    'versions': found_versions
+                }
+            )
         
     except requests.RequestException:
         pass  # Connection errors already reported

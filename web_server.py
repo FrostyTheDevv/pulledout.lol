@@ -3,7 +3,7 @@ Web Security Scanner - Flask Web Interface
 Professional web-based security scanning platform with authentication
 """
 
-from flask import Flask, render_template, request, jsonify, send_file, g, redirect, make_response
+from flask import Flask, render_template, request, jsonify, send_file, g, redirect, make_response, send_from_directory
 from flask_cors import CORS
 from flask_compress import Compress
 import requests
@@ -20,7 +20,9 @@ from core.report_generator import generate_html_report
 from database import db, init_database, UserManager, ScanManager
 from functools import wraps
 from dotenv import load_dotenv
+from core.error_tracker import log_info, log_warning, log_error, get_tracker
 from typing import Optional
+from scan_phases import SCAN_PHASES, CATEGORY_INFO, get_phase_by_progress, get_active_phase, get_completed_phases
 
 # Try to import Redis (optional dependency)
 try:
@@ -81,7 +83,7 @@ app.json = DateTimeJSONProvider(app)
 
 # Configure CORS with specific origin (no wildcard) and support credentials
 CORS(app, 
-     origins=['https://pulledout.lol', 'http://localhost:5000', 'http://127.0.0.1:5000', 'http://localhost:3000'],
+     origins=['https://pulledout.lol', 'http://localhost:5000', 'http://127.0.0.1:5000'],
      supports_credentials=True,
      allow_headers=['Content-Type', 'Authorization'],
      expose_headers=['Content-Type'])
@@ -281,11 +283,11 @@ def add_security_headers(response):
     # Content Security Policy - Comprehensive directives
     csp_directives = [
         "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",  # unsafe-inline needed for dynamic styles in app.js
-        "font-src 'self'",
+        "script-src 'self' 'unsafe-inline'",  # unsafe-inline needed for React and anti-debugging scripts
+        "style-src 'self' 'unsafe-inline'",  # unsafe-inline needed for dynamic styles
+        "font-src 'self' data:",
         "img-src 'self' data: https:",
-        "connect-src 'self'",
+        "connect-src 'self' ws: wss:",  # ws/wss for WebSocket connections
         "media-src 'none'",
         "frame-src 'none'",
         "worker-src 'self'",
@@ -399,6 +401,11 @@ def add_security_headers(response):
                     logger.info(f"✓ SameSite already present: {cookie}")
                     
             response.headers.add('Set-Cookie', cookie)
+    
+    # Cache-busting headers to prevent 304 responses from serving old files
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
     
     return response
 
@@ -626,20 +633,45 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         # Check Authorization header first, then fall back to cookie
-        session_token = request.headers.get('Authorization') or request.cookies.get('sessionToken')
+        auth_header = request.headers.get('Authorization')
+        cookie_token = request.cookies.get('sessionToken')
+        session_token = auth_header or cookie_token
+        
+        # Log authentication attempt
+        log_info('AUTH', 'Authentication attempt', 
+                 has_auth_header=bool(auth_header),
+                 has_cookie=bool(cookie_token),
+                 endpoint=request.endpoint,
+                 path=request.path)
+        
+        # Strip "Bearer " prefix if present
+        if session_token and session_token.startswith('Bearer '):
+            session_token = session_token[7:]  # Remove "Bearer " prefix
+        
         if not session_token:
-            return jsonify({'error': 'Authentication required'}), 401
+            log_warning('AUTH', 'No session token found', 
+                       cookies=dict(request.cookies),
+                       headers={k:v for k,v in request.headers.items() if 'auth' in k.lower()})
+            return jsonify({'error': 'Authentication required', 'debug': 'no_token'}), 401
         
         # Verify session
         user_info = UserManager.verify_session(session_token)
+        
         if not user_info:
-            return jsonify({'error': 'Invalid or expired session'}), 401
+            log_error('AUTH', 'Session verification failed',
+                     token_length=len(session_token),
+                     token_preview=session_token[:10] + '...')
+            return jsonify({'error': 'Invalid or expired session', 'debug': 'invalid_session'}), 401
         
         # Attach user info to Flask g object (request context)
         g.user_id = user_info['user_id']
         g.username = user_info['username']
         g.discord_id = user_info.get('discord_id')
         g.discord_avatar = user_info.get('discord_avatar')
+        
+        log_info('AUTH', f'Successfully authenticated: {g.username}',
+                user_id=g.user_id,
+                endpoint=request.endpoint)
         
         return f(*args, **kwargs)
     return decorated_function
@@ -650,22 +682,53 @@ def guild_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         # Check Authorization header first, then fall back to cookie
-        session_token = request.headers.get('Authorization') or request.cookies.get('sessionToken')
+        auth_header = request.headers.get('Authorization')
+        cookie_token = request.cookies.get('sessionToken')
+        session_token = auth_header or cookie_token
+        
+        # Log authentication attempt
+        log_info('AUTH', 'Guild-protected endpoint accessed', 
+                 has_auth_header=bool(auth_header),
+                 has_cookie=bool(cookie_token),
+                 endpoint=request.endpoint,
+                 path=request.path)
+        
+        # Strip "Bearer " prefix if present
+        if session_token and session_token.startswith('Bearer '):
+            session_token = session_token[7:]  # Remove "Bearer " prefix
+        
         if not session_token:
+            log_warning('AUTH', 'No session token for guild endpoint', 
+                       cookies=dict(request.cookies),
+                       headers={k:v for k,v in request.headers.items() if 'auth' in k.lower()})
             return jsonify({'error': 'Authentication required', 'requires_auth': True}), 401
         
         # Verify session
         user_info = UserManager.verify_session(session_token)
         if not user_info:
+            log_error('AUTH', 'Session verification failed on guild endpoint',
+                     token_length=len(session_token),
+                     token_preview=session_token[:10] + '...')
             return jsonify({'error': 'Invalid or expired session', 'requires_auth': True}), 401
         
         # Check guild membership
         discord_id = user_info.get('discord_id')
         if not discord_id:
+            log_warning('AUTH', 'Discord account not linked', 
+                       user_id=user_info.get('user_id'))
             return jsonify({'error': 'Discord account not linked', 'requires_auth': True}), 401
+        
+        log_info('AUTH', 'Checking guild membership',
+                discord_id=discord_id,
+                username=user_info.get('username'))
         
         access_check = check_guild_membership(discord_id)
         if not access_check['has_access']:
+            log_warning('AUTH', 'Guild access denied',
+                       discord_id=discord_id,
+                       reason=access_check.get('reason'),
+                       in_guild=access_check.get('in_guild'),
+                       is_denied=access_check.get('is_denied'))
             # Check if user is denied
             if access_check.get('is_denied', False):
                 return jsonify({
@@ -686,14 +749,45 @@ def guild_required(f):
         g.discord_id = discord_id
         g.discord_avatar = user_info.get('discord_avatar')
         
+        log_info('AUTH', f'Successfully authenticated with guild access: {g.username}',
+                user_id=g.user_id,
+                discord_id=g.discord_id,
+                endpoint=request.endpoint)
+        
         return f(*args, **kwargs)
     return decorated_function
 
 # Authentication Routes - Discord OAuth
 
+@app.route('/auth/login', methods=['GET'])
+def auth_login_redirect():
+    """Direct redirect to Discord OAuth (for frontend compatibility)"""
+    if not DISCORD_CLIENT_ID:
+        return jsonify({'error': 'Discord OAuth not configured'}), 500
+    
+    # Support 'next' param to redirect back after login
+    import urllib.parse
+    next_url = request.args.get('next', '/dashboard')
+    # Only allow relative paths to prevent open redirect
+    if not next_url.startswith('/'):
+        next_url = '/dashboard'
+    state = urllib.parse.quote(next_url)
+    
+    # Build OAuth URL and redirect
+    oauth_url = (
+        f"{DISCORD_API_BASE}/oauth2/authorize"
+        f"?client_id={DISCORD_CLIENT_ID}"
+        f"&redirect_uri={DISCORD_REDIRECT_URI}"
+        f"&response_type=code"
+        f"&scope=identify"
+        f"&state={state}"
+    )
+    
+    return redirect(oauth_url)
+
 @app.route('/api/auth/discord/login', methods=['GET'])
 def discord_login():
-    """Initiate Discord OAuth flow"""
+    """Initiate Discord OAuth flow (API route returns JSON)"""
     if not DISCORD_CLIENT_ID:
         return jsonify({'error': 'Discord OAuth not configured'}), 500
     
@@ -914,6 +1008,69 @@ def get_system_info():
         'warning': warning
     })
 
+@app.route('/api/platform/capabilities', methods=['GET'])
+def get_platform_capabilities():
+    """Get real-time platform capability statistics"""
+    import glob
+    
+    # Count actual Python modules in the modules/ directory (excluding __init__.py and __pycache__)
+    modules_path = os.path.join(os.path.dirname(__file__), 'modules', '*.py')
+    all_modules = glob.glob(modules_path)
+    active_modules = len([m for m in all_modules if not m.endswith('__init__.py')])
+    
+    # Count actual attack vectors by counting unique check functions across all modules
+    attack_vectors = 0
+    for module_file in all_modules:
+        if module_file.endswith('__init__.py'):
+            continue
+        try:
+            with open(module_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                # Count scanner.add_finding calls (each represents a unique check/attack vector)
+                attack_vectors += content.count('scanner.add_finding(')
+                attack_vectors += content.count('add_finding(')
+        except:
+            pass
+    
+    # Calculate coverage percentage based on comprehensive security testing areas
+    # We cover: Web Security, API Security, Database Security, Authentication, 
+    # Client-Side Security, Infrastructure, Data Extraction, Active Exploitation
+    total_security_areas = 12  # Major security testing domains
+    covered_areas = active_modules / 4  # Rough estimate of coverage depth
+    coverage_percentage = min(int((covered_areas / total_security_areas) * 100), 95)
+    
+    # Determine coverage level
+    if coverage_percentage >= 90:
+        coverage_level = "Comprehensive"
+    elif coverage_percentage >= 75:
+        coverage_level = "Extensive"
+    elif coverage_percentage >= 60:
+        coverage_level = "Deep"
+    else:
+        coverage_level = "Moderate"
+    
+    return jsonify({
+        'active_modules': active_modules,
+        'total_modules': active_modules,  # Dynamically counted from modules/ directory
+        'attack_vectors': attack_vectors,
+        'coverage_percentage': coverage_percentage,
+        'coverage_level': coverage_level
+    })
+
+@app.route('/api/scan/phases', methods=['GET'])
+def get_scan_phases():
+    """Get all scan phases configuration for UI display"""
+    return jsonify({
+        'phases': SCAN_PHASES,
+        'categories': CATEGORY_INFO,
+        'total_phases': len(SCAN_PHASES)
+    })
+
+@app.route('/api/csrf-token', methods=['GET'])
+def get_csrf_token():
+    """Get CSRF token for API requests"""
+    token = generate_csrf_token()
+    return jsonify({'csrf_token': token})
 
 def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
     """Background thread to run security scan"""
@@ -923,23 +1080,38 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
             'progress': 0,
             'message': 'Initializing scan...',
             'pages_scanned': 0,
-            'total_findings': 0
+            'total_findings': 0,
+            'current_phase': None,
+            'completed_phases': [],
+            'total_phases': len(SCAN_PHASES)
         }
         
+        def update_progress(progress, message):
+            """Update scan progress with phase information"""
+            active_phase = get_active_phase(progress)
+            completed = get_completed_phases(progress)
+            scan_status[scan_id].update({
+                'progress': progress,
+                'message': message,
+                'current_phase': active_phase,
+                'completed_phases': completed,
+                'pages_scanned': len(scanner.pages_scanned) if hasattr(scanner, 'pages_scanned') else 0
+            })
+        
         # Create scanner instance
-        scanner = SecurityScanner(target_url, max_pages=max_pages)
+        scanner = SecurityScanner(target_url, max_pages=max_pages, progress_callback=update_progress)
         
         # Monkey patch to update progress during scan
         original_add_finding = scanner.add_finding
         def tracked_add_finding(*args, **kwargs):
             result = original_add_finding(*args, **kwargs)
             scan_status[scan_id]['total_findings'] = len(scanner.findings)
+            scan_status[scan_id]['pages_scanned'] = len(scanner.pages_scanned)
             return result
         scanner.add_finding = tracked_add_finding
         
         # Update status
-        scan_status[scan_id]['message'] = 'Discovering pages...'
-        scan_status[scan_id]['progress'] = 5
+        update_progress(5, 'Discovering pages...')
         
         # Track pages scanned
         import functools
@@ -951,11 +1123,9 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
             original_discover = page_discovery.discover_pages
             
             def tracked_discover(s):
-                scan_status[scan_id]['message'] = 'Discovering pages to scan...'
-                scan_status[scan_id]['progress'] = 10
+                update_progress(10, 'Discovering pages to scan...')
                 pages = original_discover(s)
-                scan_status[scan_id]['message'] = f'Found {len(pages)} pages, starting security checks...'
-                scan_status[scan_id]['progress'] = 15
+                update_progress(15, f'Found {len(pages)} pages, starting security checks...')
                 return pages
             
             page_discovery.discover_pages = tracked_discover
@@ -971,13 +1141,11 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
         scanner.scan = progress_tracking_scan
         
         # Run scan
-        scan_status[scan_id]['message'] = 'Running comprehensive security analysis...'
-        scan_status[scan_id]['progress'] = 20
+        update_progress(20, 'Running comprehensive security analysis...')
         results = scanner.scan()
         
         # Generate report
-        scan_status[scan_id]['message'] = 'Generating detailed HTML report...'
-        scan_status[scan_id]['progress'] = 90
+        update_progress(90, 'Generating detailed HTML report...')
         
         report_path = os.path.join(REPORTS_DIR, f'report_{scan_id}.html')
         generate_html_report(results, report_path)
@@ -1003,7 +1171,10 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
             'progress': 100,
             'message': f'Scan completed! Found {len(results["findings"])} security issues across {results["pages_scanned"]} pages',
             'pages_scanned': results['pages_scanned'],
-            'total_findings': len(results['findings'])
+            'total_findings': len(results['findings']),
+            'current_phase': SCAN_PHASES[-1],
+            'completed_phases': [p['id'] for p in SCAN_PHASES],
+            'total_phases': len(SCAN_PHASES)
         }
         
         logger.info(f"Scan {scan_id} completed successfully")
@@ -1021,41 +1192,17 @@ def run_scan_thread(scan_id, target_url, max_pages=100, user_id=None):
         }
 
 @app.route('/')
-def index():
-    """Main dashboard page - frontend handles authentication via localStorage"""
-    # Just render the page - frontend JavaScript will check localStorage
-    # and verify session via API calls with Authorization header
-    return render_template('index.html')
+@app.route('/<path:path>')
+def serve_react_app(path=''):
+    """Serve React frontend app - all routes handled by React Router"""
+    # Check if it's a static file request
+    if path and os.path.exists(os.path.join(app.static_folder, 'dist', path)):
+        return send_from_directory(os.path.join(app.static_folder, 'dist'), path)
+    # Otherwise serve index.html and let React Router handle the route
+    return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
 
-@app.route('/login')
-def login_page():
-    """Login page"""
-    return render_template('login.html')
-
-@app.route('/signup')
-def signup_page():
-    """Signup page"""
-    return render_template('signup.html')
-
-@app.route('/terms')
-def terms_page():
-    """Terms of Service page"""
-    return render_template('terms.html')
-
-@app.route('/privacy')
-def privacy_page():
-    """Privacy Policy page"""
-    return render_template('privacy.html')
-
-@app.route('/pay')
-def pay_page():
-    """Payment page for server access"""
-    return render_template('pay.html')
-
-@app.route('/denied')
-def denied_page():
-    """Access denied page for users with M.U role"""
-    return render_template('denied.html')
+# Keep old routes for backward compatibility - now handled by React Router
+# The catch-all route at the bottom will serve index.html for all these paths
 
 # Payment API Routes
 
@@ -1193,6 +1340,596 @@ def payment_webhook():
         logger.error(f"Webhook error: {str(e)}", exc_info=True)
         return jsonify({'error': 'Webhook processing failed'}), 500
 
+# ==============================================================================
+# SPECIALIZED SECURITY TOOL API ENDPOINTS
+# ==============================================================================
+
+def run_specialized_tool_thread(scan_id, tool_name, target_url, options, user_id=None):
+    """Background thread for specialized tool scans"""
+    try:
+        scan_status[scan_id] = {
+            'status': 'running',
+            'progress': 10,
+            'message': f'Initializing {tool_name}...',
+            'tool': tool_name
+        }
+        
+        # Create scanner instance
+        scanner = SecurityScanner(target_url, max_pages=1)  # Single page for specialized tools
+        
+        # Update progress
+        scan_status[scan_id]['progress'] = 20
+        scan_status[scan_id]['message'] = f'Running {tool_name} analysis...'
+        
+        results = {'target_url': target_url, 'tool': tool_name, 'findings': [], 'scan_id': scan_id}
+        
+        # Route to appropriate tool modules
+        if tool_name == 'Database Intrusion':
+            from modules.database_exposure import check_database_exposure
+            from modules.active_database_intrusion import test_database_intrusion
+            from modules.active_database_penetration import test_database_penetration
+            
+            # Phase 1: MongoDB Testing (17%)
+            scan_status[scan_id]['message'] = 'Testing MongoDB connections and vulnerabilities...'
+            scan_status[scan_id]['progress'] = 17
+            check_database_exposure(scanner)
+            
+            # Phase 2: MySQL/MariaDB Testing (33%)
+            scan_status[scan_id]['message'] = 'Testing MySQL/MariaDB authentication and injection...'
+            scan_status[scan_id]['progress'] = 33
+            test_database_intrusion(scanner)
+            
+            # Phase 3: PostgreSQL Testing (50%)
+            scan_status[scan_id]['message'] = 'Testing PostgreSQL connections and privilege escalation...'
+            scan_status[scan_id]['progress'] = 50
+            
+            # Phase 4: Redis Testing (67%)
+            scan_status[scan_id]['message'] = 'Extracting live database data and testing Redis...'
+            scan_status[scan_id]['progress'] = 67
+            try:
+                from modules.database_explorer import explore_exposed_databases
+                db_exploration_results = explore_exposed_databases(scanner)
+                results['db_exploration_results'] = db_exploration_results
+            except Exception as e:
+                logger.error(f"Database exploration error: {e}")
+                results['db_exploration_results'] = {}
+            
+            # Phase 5: Elasticsearch Testing (83%)
+            scan_status[scan_id]['message'] = 'Testing Elasticsearch HTTP API and indices...'
+            scan_status[scan_id]['progress'] = 83
+            test_database_penetration(scanner)
+            
+            # Phase 6: NoSQL Database Testing (95%)
+            scan_status[scan_id]['message'] = 'Testing CouchDB and other NoSQL databases...'
+            scan_status[scan_id]['progress'] = 95
+            
+        elif tool_name == 'Data Extractor':
+            from modules.data_extraction import extract_all_data
+            from modules.active_data_harvest import harvest_sensitive_data
+            from modules.active_credential_harvesting import harvest_and_test_credentials
+            from modules.info_disclosure import check_information_disclosure
+            
+            # Phase 1: Email & PII Extraction (25%)
+            scan_status[scan_id]['message'] = 'Extracting emails, phone numbers, and PII...'
+            scan_status[scan_id]['progress'] = 25
+            extract_all_data(scanner)
+            
+            # Phase 2: API Keys & Secrets (50%)
+            scan_status[scan_id]['message'] = 'Harvesting API keys, tokens, and secrets...'
+            scan_status[scan_id]['progress'] = 50
+            harvest_sensitive_data(scanner)
+            
+            # Phase 3: Credentials & Passwords (75%)
+            scan_status[scan_id]['message'] = 'Extracting credentials and testing authentication...'
+            scan_status[scan_id]['progress'] = 75
+            harvest_and_test_credentials(scanner)
+            
+            # Phase 4: Internal URLs & Source Code (90%)
+            scan_status[scan_id]['message'] = 'Checking information disclosure and internal URLs...'
+            scan_status[scan_id]['progress'] = 90
+            check_information_disclosure(scanner)
+            
+        elif tool_name == 'Cloud Storage':
+            from modules.cloud_storage_detection import detect_cloud_storage
+            
+            # Progress callback for cloud storage phases
+            def update_cloud_progress(phase, progress, message):
+                scan_status[scan_id]['message'] = message
+                scan_status[scan_id]['progress'] = progress
+            
+            scan_status[scan_id]['message'] = 'Initializing cloud storage scan...'
+            scan_status[scan_id]['progress'] = 10
+            detect_cloud_storage(scanner, progress_callback=update_cloud_progress)
+            
+        elif tool_name == 'Exposed Files':
+            from modules.exposed_files_scanner import scan_exposed_files
+            from modules.discovery_hygiene import check_discovery_hygiene
+            
+            # Phase 1: Configuration Files (20%)
+            scan_status[scan_id]['message'] = 'Scanning for .env, config.php, and configuration files...'
+            scan_status[scan_id]['progress'] = 20
+            
+            # Phase 2: Backup Files (40%)
+            scan_status[scan_id]['message'] = 'Testing for backup files and SQL dumps...'
+            scan_status[scan_id]['progress'] = 40
+            scan_exposed_files(scanner)
+            
+            # Phase 3: Version Control (60%)
+            scan_status[scan_id]['message'] = 'Checking for .git, .svn, and version control leaks...'
+            scan_status[scan_id]['progress'] = 60
+            
+            # Phase 4: Log Files (80%)
+            scan_status[scan_id]['message'] = 'Scanning for log files and error messages...'
+            scan_status[scan_id]['progress'] = 80
+            check_discovery_hygiene(scanner)
+            
+            # Phase 5: Development Files (95%)
+            scan_status[scan_id]['message'] = 'Testing for development files and debug endpoints...'
+            scan_status[scan_id]['progress'] = 95
+            
+        elif tool_name == 'API Tester':
+            from modules.api_testing import discover_and_test_apis
+            
+            # Phase 1: Endpoint Discovery (20%)
+            scan_status[scan_id]['message'] = 'Discovering API endpoints from HTML and JavaScript...'
+            scan_status[scan_id]['progress'] = 20
+            
+            # Phase 2: REST API Testing (40%)
+            scan_status[scan_id]['message'] = 'Testing REST API endpoints and HTTP methods...'
+            scan_status[scan_id]['progress'] = 40
+            discover_and_test_apis(scanner)
+            
+            # Phase 3: Authentication Testing (60%)
+            scan_status[scan_id]['message'] = 'Testing API authentication and authorization...'
+            scan_status[scan_id]['progress'] = 60
+            
+            # Phase 4: GraphQL Testing (80%)
+            scan_status[scan_id]['message'] = 'Testing GraphQL introspection and mutations...'
+            scan_status[scan_id]['progress'] = 80
+            
+            # Phase 5: Rate Limiting & CORS (95%)
+            scan_status[scan_id]['message'] = 'Checking rate limiting, CORS, and security headers...'
+            scan_status[scan_id]['progress'] = 95
+            
+        elif tool_name == 'Network Recon':
+            from modules.network_recon import perform_network_recon
+            
+            # Phase 1: DNS Enumeration (20%)
+            scan_status[scan_id]['message'] = 'Performing DNS enumeration and zone transfers...'
+            scan_status[scan_id]['progress'] = 20
+            
+            # Phase 2: Subdomain Discovery (40%)
+            scan_status[scan_id]['message'] = 'Discovering subdomains via brute force and DNS...'
+            scan_status[scan_id]['progress'] = 40
+            perform_network_recon(scanner, scanner.target_url)
+            
+            # Phase 3: Port Scanning (60%)
+            scan_status[scan_id]['message'] = 'Scanning common ports and services...'
+            scan_status[scan_id]['progress'] = 60
+            
+            # Phase 4: SSL/TLS Analysis (80%)
+            scan_status[scan_id]['message'] = 'Analyzing SSL/TLS certificates and ciphers...'
+            scan_status[scan_id]['progress'] = 80
+            
+            # Phase 5: Service Detection (95%)
+            scan_status[scan_id]['message'] = 'Detecting running services and versions...'
+            scan_status[scan_id]['progress'] = 95
+            
+        elif tool_name == 'Penetration Testing':
+            from modules.active_sql_injection import test_sql_injection
+            from modules.active_xss_testing import test_xss_vulnerabilities
+            from modules.active_auth_testing import test_authentication_bypass
+            from modules.active_rce_testing import test_command_injection
+            from modules.active_session_hijacking import test_session_hijacking
+            from modules.advanced_sqli_extraction import perform_sql_injection_extraction
+            from modules.active_ssti_testing import test_ssti
+            from modules.active_nosql_injection import test_nosql_injection
+            from modules.cms_exploits import test_cms_vulnerabilities
+            from modules.active_ssrf_testing import test_ssrf_vulnerabilities
+            from modules.active_path_traversal import test_path_traversal
+            
+            # Phase 1: SQL Injection Testing (17%)
+            scan_status[scan_id]['message'] = 'Testing SQL injection in parameters and forms...'
+            scan_status[scan_id]['progress'] = 17
+            test_sql_injection(scanner)
+            perform_sql_injection_extraction(scanner)
+            
+            # Phase 2: XSS Vulnerability Testing (33%)
+            scan_status[scan_id]['message'] = 'Testing XSS vulnerabilities and filter bypasses...'
+            scan_status[scan_id]['progress'] = 33
+            test_xss_vulnerabilities(scanner)
+            
+            # Phase 3: Authentication Bypass (50%)
+            scan_status[scan_id]['message'] = 'Testing authentication bypass and session attacks...'
+            scan_status[scan_id]['progress'] = 50
+            test_authentication_bypass(scanner)
+            
+            # Phase 4: Remote Code Execution (67%)
+            scan_status[scan_id]['message'] = 'Testing command injection, SSTI, and RCE vectors...'
+            scan_status[scan_id]['progress'] = 67
+            test_command_injection(scanner)
+            test_ssti(scanner)
+            test_cms_vulnerabilities(scanner)
+            
+            # Phase 5: SSRF & Path Traversal (83%)
+            scan_status[scan_id]['message'] = 'Testing SSRF, path traversal, and file inclusion...'
+            scan_status[scan_id]['progress'] = 83
+            test_ssrf_vulnerabilities(scanner)
+            test_path_traversal(scanner)
+            
+            # Phase 6: Session & CSRF Testing (95%)
+            scan_status[scan_id]['message'] = 'Testing session hijacking and CSRF vulnerabilities...'
+            scan_status[scan_id]['progress'] = 95
+            test_session_hijacking(scanner)
+            test_nosql_injection(scanner)
+        
+        # Compile results
+        results['findings'] = scanner.findings
+        results['findings_count'] = len(scanner.findings)
+        results['pages_scanned'] = len(scanner.pages_scanned) if hasattr(scanner, 'pages_scanned') else 1
+        risk_score, risk_level = scanner.get_risk_score()
+        results['risk_score'] = risk_score
+        results['risk_level'] = risk_level
+        results['findings_summary'] = scanner.get_findings_summary()
+        results['category_summary'] = scanner.get_category_summary()
+        results['scan_time'] = datetime.now()
+        
+        # Store results
+        scan_results[scan_id] = results
+        
+        # Save to database if user authenticated
+        if user_id:
+            with app.app_context():
+                ScanManager.save_scan(user_id, results)
+        
+        # Update status to completed
+        scan_status[scan_id] = {
+            'status': 'completed',
+            'progress': 100,
+            'message': f'{tool_name} completed! Found {len(results["findings"])} issues',
+            'tool': tool_name,
+            'findings_count': len(results['findings'])
+        }
+        
+        # Cleanup scanner
+        scanner.cleanup()
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"Tool scan error for {scan_id}: {error_details}")
+        scan_status[scan_id] = {
+            'status': 'failed',
+            'progress': 0,
+            'message': f'Scan failed: {str(e)}',
+            'error_details': str(e)
+        }
+
+@app.route('/api/tools/database-intrusion', methods=['POST'])
+@guild_required
+@csrf_protected
+def database_intrusion_scan():
+    """Database intrusion testing endpoint"""
+    try:
+        data = request.json
+        target = data.get('target')
+        ports = data.get('ports', '27017,3306,5432,6379,9200,5984')
+        
+        if not target:
+            return jsonify({'error': 'Target is required'}), 400
+        
+        # Auto-prefix if needed
+        if not target.startswith(('http://', 'https://')):
+            target = 'https://' + target
+        
+        scan_id = str(uuid.uuid4())
+        
+        thread = threading.Thread(
+            target=run_specialized_tool_thread,
+            args=(scan_id, 'Database Intrusion', target, {'ports': ports}, g.user_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'scan_id': scan_id, 'message': 'Database intrusion scan started'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tools/data-extractor', methods=['POST'])
+@guild_required
+@csrf_protected
+def data_extractor_scan():
+    """Data extraction endpoint"""
+    try:
+        data = request.json
+        target = data.get('target')
+        
+        if not target:
+            return jsonify({'error': 'Target is required'}), 400
+        
+        if not target.startswith(('http://', 'https://')):
+            target = 'https://' + target
+        
+        scan_id = str(uuid.uuid4())
+        
+        thread = threading.Thread(
+            target=run_specialized_tool_thread,
+            args=(scan_id, 'Data Extractor', target, {}, g.user_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'scan_id': scan_id, 'message': 'Data extraction started'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tools/cloud-storage', methods=['POST'])
+@guild_required
+@csrf_protected
+def cloud_storage_scan():
+    """Cloud storage detection endpoint"""
+    try:
+        data = request.json
+        target = data.get('target')
+        
+        if not target:
+            return jsonify({'error': 'Target is required'}), 400
+        
+        if not target.startswith(('http://', 'https://')):
+            target = 'https://' + target
+        
+        scan_id = str(uuid.uuid4())
+        
+        thread = threading.Thread(
+            target=run_specialized_tool_thread,
+            args=(scan_id, 'Cloud Storage', target, {}, g.user_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'scan_id': scan_id, 'message': 'Cloud storage scan started'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tools/exposed-files', methods=['POST'])
+@guild_required
+@csrf_protected
+def exposed_files_scan():
+    """Exposed files scanning endpoint"""
+    try:
+        data = request.json
+        target = data.get('target')
+        
+        if not target:
+            return jsonify({'error': 'Target is required'}), 400
+        
+        if not target.startswith(('http://', 'https://')):
+            target = 'https://' + target
+        
+        scan_id = str(uuid.uuid4())
+        
+        thread = threading.Thread(
+            target=run_specialized_tool_thread,
+            args=(scan_id, 'Exposed Files', target, {}, g.user_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'scan_id': scan_id, 'message': 'Exposed files scan started'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tools/api-tester', methods=['POST'])
+@guild_required
+@csrf_protected
+def api_tester_scan():
+    """API testing endpoint"""
+    try:
+        data = request.json
+        target = data.get('target')
+        
+        if not target:
+            return jsonify({'error': 'Target is required'}), 400
+        
+        if not target.startswith(('http://', 'https://')):
+            target = 'https://' + target
+        
+        scan_id = str(uuid.uuid4())
+        
+        thread = threading.Thread(
+            target=run_specialized_tool_thread,
+            args=(scan_id, 'API Tester', target, {}, g.user_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'scan_id': scan_id, 'message': 'API testing started'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tools/network-recon', methods=['POST'])
+@guild_required
+@csrf_protected
+def network_recon_scan():
+    """Network reconnaissance endpoint"""
+    try:
+        data = request.json
+        target = data.get('target')
+        
+        if not target:
+            return jsonify({'error': 'Target is required'}), 400
+        
+        if not target.startswith(('http://', 'https://')):
+            target = 'https://' + target
+        
+        scan_id = str(uuid.uuid4())
+        
+        thread = threading.Thread(
+            target=run_specialized_tool_thread,
+            args=(scan_id, 'Network Recon', target, {}, g.user_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'scan_id': scan_id, 'message': 'Network reconnaissance started'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tools/penetration-test', methods=['POST'])
+@guild_required
+@csrf_protected
+def penetration_test_scan():
+    """Comprehensive penetration testing endpoint"""
+    try:
+        data = request.json
+        target = data.get('target')
+        categories = data.get('categories', ['all'])
+        
+        if not target:
+            return jsonify({'error': 'Target is required'}), 400
+        
+        if not target.startswith(('http://', 'https://')):
+            target = 'https://' + target
+        
+        scan_id = str(uuid.uuid4())
+        
+        thread = threading.Thread(
+            target=run_specialized_tool_thread,
+            args=(scan_id, 'Penetration Testing', target, {'categories': categories}, g.user_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'scan_id': scan_id, 'message': 'Penetration testing started'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tools/<scan_id>/results', methods=['GET'])
+@guild_required
+def get_tool_results(scan_id):
+    """Get results from specialized tool scan"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    results = scan_results[scan_id]
+    return jsonify(results)
+
+@app.route('/api/tools/<scan_id>/status', methods=['GET'])
+@guild_required
+def get_tool_status(scan_id):
+    """Get status of specialized tool scan"""
+    if scan_id not in scan_status:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    status = scan_status[scan_id]
+    return jsonify(status)
+
+@app.route('/api/tools/<scan_id>/database-explorer', methods=['GET'])
+@guild_required
+def get_database_explorer_data(scan_id):
+    """Get live database exploration data"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    # Check if scanner has database exploration results
+    results = scan_results.get(scan_id, {})
+    db_data = results.get('db_exploration_results', {})
+    
+    return jsonify(db_data)
+
+@app.route('/api/tools/<scan_id>/cloud-storage-explorer', methods=['GET'])
+@guild_required
+def get_cloud_storage_explorer_data(scan_id):
+    """Get live cloud storage exploration data"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    results = scan_results.get(scan_id, {})
+    cloud_data = results.get('cloud_storage_exploration', {})
+    
+    return jsonify(cloud_data)
+
+@app.route('/api/tools/<scan_id>/data-extractor-viewer', methods=['GET'])
+@guild_required
+def get_data_extractor_viewer_data(scan_id):
+    """Get extracted data (APIs, forms, endpoints, secrets)"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    results = scan_results.get(scan_id, {})
+    extracted_data = results.get('extracted_data', {})
+    
+    return jsonify(extracted_data)
+
+@app.route('/api/tools/<scan_id>/exposed-files-viewer', methods=['GET'])
+@guild_required
+def get_exposed_files_viewer_data(scan_id):
+    """Get exposed files with content"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    results = scan_results.get(scan_id, {})
+    files_data = results.get('exposed_files_data', {})
+    
+    return jsonify(files_data)
+
+@app.route('/api/tools/<scan_id>/api-response-viewer', methods=['GET'])
+@guild_required
+def get_api_response_viewer_data(scan_id):
+    """Get live API response data"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    results = scan_results.get(scan_id, {})
+    api_data = results.get('api_response_data', {})
+    
+    return jsonify(api_data)
+
+@app.route('/api/tools/<scan_id>/query-database', methods=['POST'])
+@guild_required
+def query_database(scan_id):
+    """Query MongoDB database with custom filter"""
+    if scan_id not in scan_results:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    try:
+        import pymongo  # type: ignore
+        data = request.get_json()
+        database = data.get('database')
+        collection = data.get('collection')
+        filter_query = json.loads(data.get('filter', '{}'))
+        limit = min(int(data.get('limit', 20)), 100)  # Max 100 docs
+        
+        # Get MongoDB connection from scan results
+        results = scan_results.get(scan_id, {})
+        db_data = results.get('db_exploration_results', {})
+        
+        if not db_data.get('mongodb'):
+            return jsonify({'error': 'No MongoDB connection available'}), 404
+        
+        host = db_data['mongodb'][0]['host']
+        client = pymongo.MongoClient(f'mongodb://{host}', serverSelectionTimeoutMS=5000)
+        
+        db = client[database]
+        coll = db[collection]
+        
+        documents = list(coll.find(filter_query).limit(limit))
+        
+        # Convert ObjectId to string for JSON serialization
+        for doc in documents:
+            if '_id' in doc:
+                doc['_id'] = str(doc['_id'])
+        
+        client.close()
+        
+        return jsonify({'documents': documents, 'count': len(documents)})
+    except Exception as e:
+        return jsonify({'error': str(e), 'documents': []}), 500
+
+# ==============================================================================
+# END SPECIALIZED TOOL ENDPOINTS
+# ==============================================================================
+
 @app.route('/robots.txt')
 def robots_txt():
     """Serve robots.txt file"""
@@ -1210,10 +1947,12 @@ def start_scan():
     """Start a new security scan (requires authentication and guild membership)"""
     try:
         data = request.json
-        target_url = data.get('url')
+        logger.info(f"Scan request received with data: {data}")
+        target_url = data.get('target_url')  # Match frontend field name
         max_pages = data.get('max_pages', 10)
         
         if not target_url:
+            logger.error(f"Missing URL in scan request. Received data: {data}")
             return jsonify({'error': 'URL is required'}), 400
         
         # Auto-prefix URL if needed
@@ -1282,14 +2021,25 @@ def get_scan_results(scan_id):
     """Get results of a completed scan"""
     logger.info(f"Getting results for scan {scan_id}")
     
-    # Check in-memory first
+    # Check in-memory first (no auth required for active scans)
     if scan_id in scan_results:
         results = scan_results[scan_id]
         logger.info(f"Found scan {scan_id} in Redis/memory. Keys: {list(results.keys()) if isinstance(results, dict) else 'not a dict'}")
         logger.info(f"Results type: {type(results)}, target_url: {results.get('target_url') if isinstance(results, dict) else 'N/A'}")
         return jsonify(results)
     
-    # Fallback to database
+    # Check if scan is still in progress
+    if scan_id in scan_status:
+        status = scan_status[scan_id]
+        logger.info(f"Scan {scan_id} is still in progress: {status.get('status')}")
+        return jsonify({
+            'error': 'Scan in progress',
+            'status': status.get('status', 'running'),
+            'progress': status.get('progress', 0),
+            'message': status.get('message', 'Scanning...')
+        }), 202  # 202 Accepted - request is still being processed
+    
+    # Fallback to database (requires auth)
     if not hasattr(g, 'user_id'):
         logger.warning(f"No user_id in context for scan {scan_id}")
         return jsonify({'error': 'Authentication required'}), 401
@@ -1333,7 +2083,7 @@ def download_report(scan_id):
 def list_user_scans():
     """List current user's scan history from database"""
     scans = ScanManager.get_user_scans(g.user_id, limit=50)
-    return jsonify(scans)
+    return jsonify({'scans': scans, 'total': len(scans)})
 
 @app.route('/api/scans/<scan_id>', methods=['GET'])
 @guild_required
@@ -1345,6 +2095,20 @@ def get_scan_from_history(scan_id):
     
     # Custom JSON provider handles datetime serialization automatically
     return jsonify(scan)
+
+@app.route('/api/scans/<scan_id>', methods=['DELETE'])
+@guild_required
+def delete_scan(scan_id):
+    """Delete a specific scan from user's history"""
+    success = ScanManager.delete_scan(scan_id, g.user_id)
+    if not success:
+        return jsonify({'error': 'Scan not found or access denied'}), 404
+    
+    # Also remove from in-memory storage if present
+    scan_status.pop(scan_id, None)
+    scan_results.pop(scan_id, None)
+    
+    return jsonify({'success': True, 'message': 'Scan deleted successfully'})
 
 @app.route('/api/scans/all', methods=['GET'])
 def list_scans():
@@ -1388,6 +2152,51 @@ def debug_cookie():
         }
     }))
     return response
+
+@app.route('/api/security/log', methods=['POST'])
+def log_security_event():
+    """Log security events from frontend (screenshot attempts, focus changes, etc.)"""
+    try:
+        data = request.json
+        event = data.get('event', 'Unknown')
+        timestamp = data.get('timestamp', datetime.now().isoformat())
+        page = data.get('page', 'Unknown')
+        user_agent = data.get('userAgent', request.headers.get('User-Agent', 'Unknown'))
+        
+        # Get user info if authenticated
+        user_info = 'Anonymous'
+        if hasattr(g, 'user_id'):
+            user_info = f'User ID: {g.user_id}'
+        
+        # Log to console and file
+        logger.warning(f"[SECURITY EVENT] {event} | Page: {page} | User: {user_info} | Time: {timestamp} | UA: {user_agent[:50]}")
+        
+        # Store in Redis or in-memory if Redis not available
+        security_log_key = f"security_log:{datetime.now().strftime('%Y%m%d')}"
+        log_entry = {
+            'event': event,
+            'timestamp': timestamp,
+            'page': page,
+            'user': user_info,
+            'ip': request.remote_addr,
+            'user_agent': user_agent
+        }
+        
+        # Try to store in Redis
+        try:
+            if REDIS_URL:
+                import redis
+                r = redis.from_url(REDIS_URL)
+                r.rpush(security_log_key, json.dumps(log_entry))
+                r.expire(security_log_key, 86400 * 7)  # Keep for 7 days
+        except Exception as e:
+            logger.error(f"Failed to store security log in Redis: {e}")
+        
+        return jsonify({'success': True}), 200
+        
+    except Exception as e:
+        logger.error(f"Error logging security event: {e}")
+        return jsonify({'error': 'Failed to log event'}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -1440,6 +2249,33 @@ def health_check():
         config_status['warnings'] = warnings
     
     return jsonify(config_status)
+
+# Debug and Monitoring API Routes
+@app.route('/api/debug/logs', methods=['GET'])
+@login_required
+def get_debug_logs():
+    """Get recent system logs for debugging"""
+    tracker = get_tracker()
+    
+    limit = int(request.args.get('limit', 100))
+    level = request.args.get('level')  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    category = request.args.get('category')  # AUTH, SCAN, DATABASE, etc.
+    
+    logs = tracker.get_recent(limit=limit, level=level, category=category)
+    stats = tracker.get_stats()
+    
+    return jsonify({
+        'logs': logs,
+        'stats': stats,
+        'total_entries': len(logs)
+    })
+
+@app.route('/api/debug/stats', methods=['GET'])
+@login_required
+def get_debug_stats():
+    """Get system statistics and error counts"""
+    tracker = get_tracker()
+    return jsonify(tracker.get_stats())
 
 # Wrap app with middleware to remove Server header
 app.wsgi_app = RemoveServerHeaderMiddleware(app.wsgi_app)

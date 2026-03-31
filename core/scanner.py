@@ -25,6 +25,10 @@ except ImportError:
     SELENIUM_AVAILABLE = False
     print("Warning: Selenium not available. Install with: pip install selenium")
 
+# Suppress SSL warnings
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # Safe print function that handles encoding errors
 def safe_print(text):
     """Print text with Unicode fallback for encoding issues"""
@@ -58,7 +62,7 @@ def safe_print(text):
 class SecurityScanner:
     """Main scanner that coordinates all security checks"""
     
-    def __init__(self, target_url: str, max_pages: int = 9999):
+    def __init__(self, target_url: str, max_pages: int = 9999, progress_callback=None):
         self.target_url = target_url.rstrip('/')
         self.max_pages = max_pages
         self.parsed_url = urllib.parse.urlparse(target_url)
@@ -67,6 +71,7 @@ class SecurityScanner:
         
         self.findings = []
         self.pages_scanned = []
+        self.progress_callback = progress_callback
         
         # Use cloudscraper to bypass Cloudflare/bot protection
         self.session = cloudscraper.create_scraper(
@@ -262,17 +267,37 @@ class SecurityScanner:
             return None
         
     def add_finding(self, severity: str, category: str, title: str, 
-                   description: str, url: str, remediation: str = ""):
-        """Add a security finding to the results"""
-        self.findings.append({
+                   description: str, url: str, remediation: str = "", 
+                   evidence: dict = None, payload: str = None):
+        """Add a security finding to the results with detailed evidence"""
+        finding = {
             'severity': severity,
             'category': category,
             'title': title,
             'description': description,
             'url': url,
             'remediation': remediation,
-            'timestamp': datetime.now()
-        })
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Add evidence if provided (tokens, credentials, commands, etc.)
+        if evidence:
+            finding['evidence'] = evidence
+            
+        # Add payload if provided (request/response data, commands)
+        if payload:
+            finding['payload'] = payload
+            
+        self.findings.append(finding)
+    
+    def update_progress(self, progress: int, message: str):
+        """Update progress via callback if available"""
+        if self.progress_callback:
+            try:
+                self.progress_callback(progress, message)
+            except Exception as e:
+                # Don't let progress callback failures stop the scan
+                pass
         
     def get_risk_score(self) -> Tuple[int, str]:
         """
@@ -366,64 +391,130 @@ class SecurityScanner:
         from modules.active_auth_testing import test_authentication_bypass
         from modules.active_rce_testing import test_command_injection
         from modules.active_data_harvest import harvest_sensitive_data
-        from modules.active_file_upload_testing import test_file_uploads
         from modules.active_session_hijacking import test_session_hijacking
+        from modules.active_database_intrusion import test_database_intrusion
+        from modules.active_database_penetration import test_database_penetration
+        from modules.advanced_sqli_extraction import perform_sql_injection_extraction
+        from modules.active_credential_harvesting import harvest_and_test_credentials
+        from modules.active_ssti_testing import test_ssti
+        from modules.active_nosql_injection import test_nosql_injection
+        from modules.active_ssrf_testing import test_ssrf_vulnerabilities
+        from modules.active_path_traversal import test_path_traversal
+        from modules.network_recon import perform_network_recon
+        from modules.cms_exploits import test_cms_vulnerabilities
         
         # Run checks on FIRST page only (for SSL, discovery, etc.)
         original_url = self.target_url
         
+        self.update_progress(8, 'Checking transport security...')
         print("[*] Checking transport security...")
         check_transport_security(self)
         
+        self.update_progress(11, 'Checking SSL/TLS configuration...')
         print("[*] Checking SSL/TLS configuration...")
         check_ssl_tls(self)
         
+        self.update_progress(14, 'Running discovery and hygiene checks...')
         print("[*] Running discovery and hygiene checks...")
         check_discovery_hygiene(self)
         
+        self.update_progress(17, 'Detecting technologies and frameworks...')
         print("[*] Detecting technologies and frameworks...")
         detect_technologies(self)
         
+        self.update_progress(20, 'Detailed HTTP security analysis...')
         print("[*] Detailed HTTP security analysis...")
         detailed_http_analysis(self)
         
+        self.update_progress(22, 'Testing HTTP methods and server config...')
         print("[*] Testing HTTP methods and server config...")
         check_server_configuration(self)
         
+        # NEW: Network reconnaissance (DNS, subdomains, ports)
+        self.update_progress(25, 'Network reconnaissance - DNS, subdomains, ports...')
+        print("[*] 🌐 NETWORK RECONNAISSANCE - DNS, subdomains, ports...")
+        perform_network_recon(self, self.target_url)
+        
         # NEW: Advanced data extraction and discovery (run once)
+        self.update_progress(28, 'Scanning for exposed sensitive files...')
         print("[*] Scanning for exposed sensitive files...")
         scan_exposed_files(self)
         
+        self.update_progress(31, 'Detecting cloud storage exposure...')
         print("[*] Detecting cloud storage exposure...")
         detect_cloud_storage(self)
         
+        self.update_progress(34, 'Checking for exposed databases...')
         print("[*] Checking for exposed databases...")
         check_database_exposure(self)
         
+        self.update_progress(37, 'CMS exploitation testing...')
+        print("[*] 🔥 CMS EXPLOITATION - WordPress, Drupal, Joomla...")
+        test_cms_vulnerabilities(self)
+        
+        self.update_progress(40, 'Active database intrusion testing...')
+        print("[*] 🔥 ACTIVE DATABASE INTRUSION - Testing unauthorized database access...")
+        test_database_intrusion(self)
+        
+        self.update_progress(43, 'Active database penetration testing...')
+        print("[*] 🔥 ACTIVE DATABASE PENETRATION - Testing connections...")
+        test_database_penetration(self)
+        
         # NEW: Active exploitation testing (penetration testing)
+        self.update_progress(46, 'SQL injection testing...')
         print("[*] Testing for SQL injection vulnerabilities...")
         test_sql_injection(self)
         
+        self.update_progress(49, 'Advanced SQL injection extraction...')
+        print("[*] 🔥 ADVANCED SQLi - Attempting data extraction...")
+        perform_sql_injection_extraction(self)
+        
+        self.update_progress(52, 'XSS vulnerability testing...')
         print("[*] Testing for XSS vulnerabilities...")
         test_xss_vulnerabilities(self)
         
+        self.update_progress(55, 'Authentication bypass testing...')
         print("[*] Testing authentication and authorization...")
         test_authentication_bypass(self)
         
+        self.update_progress(58, 'Command injection and RCE testing...')
         print("[*] Testing for command injection and RCE...")
         test_command_injection(self)
         
+        self.update_progress(61, 'Harvesting sensitive data and credentials...')
         print("[*] Harvesting sensitive data and credentials...")
         harvest_sensitive_data(self)
         
-        print("[*] Testing file upload vulnerabilities...")
-        test_file_uploads(self)
+        self.update_progress(64, 'Credential extraction and testing...')
+        print("[*] 🔥 CREDENTIAL EXTRACTION - Testing found credentials...")
+        harvest_and_test_credentials(self)
         
+        self.update_progress(67, 'Server-side template injection testing...')
+        print("[*] 🔥 SERVER-SIDE TEMPLATE INJECTION - Testing all engines...")
+        test_ssti(self)
+        
+        self.update_progress(70, 'NoSQL injection testing...')
+        print("[*] 🔥 NOSQL INJECTION - MongoDB, CouchDB exploitation...")
+        test_nosql_injection(self)
+        
+        self.update_progress(73, 'SSRF vulnerability testing...')
+        print("[*] 🔥 SSRF TESTING - Server-Side Request Forgery...")
+        test_ssrf_vulnerabilities(self)
+        
+        self.update_progress(76, 'Path traversal testing...')
+        print("[*] 🔥 PATH TRAVERSAL - Directory traversal attacks...")
+        test_path_traversal(self)
+        
+        self.update_progress(78, 'Session hijacking testing...')
         print("[*] Testing session hijacking vectors...")
         test_session_hijacking(self)
         
         # Run per-page checks on ALL discovered pages
+        self.update_progress(80, f'Scanning {len(pages_to_scan)} discovered pages...')
         for page_num, page_url in enumerate(pages_to_scan, 1):
+            # Update progress for each page (80-85% range)
+            page_progress = 80 + int((page_num / len(pages_to_scan)) * 5)
+            self.update_progress(page_progress, f'Scanning page {page_num}/{len(pages_to_scan)}...')
             print(f"\n[*] Scanning page {page_num}/{len(pages_to_scan)}: {page_url}")
             
             # Temporarily update target_url for this page
@@ -475,11 +566,13 @@ class SecurityScanner:
                 self.pages_scanned.append(page_url)
         
         # Advanced scans (run once)
+        self.update_progress(85, 'Running advanced vulnerability scans...')
         print("\n[*] Running advanced vulnerability scans...")
         self.target_url = original_url  # Restore original URL
         run_advanced_scans(self)
         
         # Calculate results
+        self.update_progress(90, 'Calculating risk scores and generating report...')
         risk_score, risk_level = self.get_risk_score()
         findings_summary = self.get_findings_summary()
         category_summary = self.get_category_summary()

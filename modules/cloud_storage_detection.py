@@ -8,7 +8,7 @@ import requests
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
-def detect_cloud_storage(scanner):
+def detect_cloud_storage(scanner, progress_callback=None):
     """
     Scan for exposed cloud storage resources
     """
@@ -34,19 +34,29 @@ def detect_cloud_storage(scanner):
         text_urls = re.findall(url_pattern, full_content)
         all_urls.update(text_urls)
         
-        # Detect AWS S3 buckets
+        # Phase 1: Detect AWS S3 buckets (20%)
+        if progress_callback:
+            progress_callback('s3', 20, 'Scanning for AWS S3 buckets...')
         _detect_s3_buckets(scanner, all_urls, full_content)
         
-        # Detect Azure Blob Storage
+        # Phase 2: Detect Azure Blob Storage (40%)
+        if progress_callback:
+            progress_callback('azure', 40, 'Testing Azure Blob Storage...')
         _detect_azure_storage(scanner, all_urls, full_content)
         
-        # Detect Google Cloud Storage
+        # Phase 3: Detect Google Cloud Storage (60%)
+        if progress_callback:
+            progress_callback('gcp', 60, 'Scanning Google Cloud Storage...')
         _detect_gcp_storage(scanner, all_urls, full_content)
         
-        # Detect DigitalOcean Spaces
+        # Phase 4: Detect DigitalOcean Spaces (80%)
+        if progress_callback:
+            progress_callback('do', 80, 'Analyzing DigitalOcean Spaces...')
         _detect_do_spaces(scanner, all_urls, full_content)
         
-        # Detect Cloudflare R2
+        # Phase 5: Detect Cloudflare R2 and Backblaze (90%)
+        if progress_callback:
+            progress_callback('other', 90, 'Detecting Backblaze B2 and other storage...')
         _detect_cloudflare_r2(scanner, all_urls, full_content)
         
     except Exception as e:

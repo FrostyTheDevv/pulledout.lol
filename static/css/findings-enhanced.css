@@ -1,0 +1,307 @@
+/* ==================== FINDINGS FILTERS & ENHANCED CARDS ==================== */
+.findings-filters {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 25px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.filter-group {
+    margin-bottom: 15px;
+}
+
+.filter-group:last-child {
+    margin-bottom: 0;
+}
+
+.filter-group label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.filter-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    padding: 8px 18px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.filter-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--accent-color);
+}
+
+.filter-btn.active {
+    background: var(--accent-gradient);
+    border-color: var(--accent-color);
+    color: white;
+    font-weight: 600;
+}
+
+.category-select,
+.search-input {
+    width: 100%;
+    padding: 12px 15px;
+    background: var(--bg-primary);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.category-select:focus,
+.search-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(0, 255, 180, 0.1);
+}
+
+.search-input::placeholder {
+    color: var(--text-muted);
+}
+
+/* Findings Cards Container */
+.findings-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.empty-findings {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+    font-size: 16px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Individual Finding Card */
+.finding-card {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    transition: all 0.3s;
+}
+
+.finding-card:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.finding-card-header {
+    padding: 18px 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.finding-card-header:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.finding-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.finding-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.severity-badge {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.severity-badge.critical {
+    background: #991b1b;
+    color: #fecaca;
+}
+
+.severity-badge.high {
+    background: #dc2626;
+    color: #fee2e2;
+}
+
+.severity-badge.medium {
+    background: #ea580c;
+    color: #fed7aa;
+}
+
+.severity-badge.low {
+    background: #ca8a04;
+    color: #fef3c7;
+}
+
+.severity-badge.info {
+    background: #0891b2;
+    color: #cffafe;
+}
+
+.category-badge {
+    padding: 5px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.expand-icon {
+    font-size: 14px;
+    color: var(--text-muted);
+    transition: transform 0.3s;
+}
+
+.finding-card-preview {
+    padding: 0 22px 15px 22px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.finding-url {
+    word-break: break-all;
+}
+
+.finding-card-body {
+    padding: 20px 22px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.finding-section {
+    margin-bottom: 25px;
+}
+
+.finding-section:last-child {
+    margin-bottom: 0;
+}
+
+.finding-section h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-color);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.finding-content {
+    color: var(--text-primary);
+    line-height: 1.7;
+    font-size: 14px;
+}
+
+.finding-content strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.finding-content code {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #00ffb4;
+}
+
+.finding-content .code-block {
+    display: block;
+    background: #1a1a1a;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow-x: auto;
+    color: #e0e0e0;
+    line-height: 1.6;
+    margin: 12px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.finding-content pre {
+    margin: 12px 0;
+}
+
+.finding-content a {
+    color: var(--accent-color);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--accent-color);
+}
+
+.finding-content a:hover {
+    color: #00cc90;
+    border-bottom-style: solid;
+}
+
+.remediation-content {
+    background: rgba(0, 100, 0, 0.1);
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 3px solid #00ffb4;
+}
+
+/* Responsive adjustments for filters and cards */
+@media (max-width: 768px) {
+    .filter-buttons {
+        gap: 8px;
+    }
+    
+    .filter-btn {
+        font-size: 12px;
+        padding: 6px 12px;
+    }
+    
+    .finding-header-left {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .finding-title {
+        width: 100%;
+        font-size: 14px;
+    }
+    
+    .finding-content .code-block {
+        font-size: 11px;
+        padding: 10px;
+    }
+}

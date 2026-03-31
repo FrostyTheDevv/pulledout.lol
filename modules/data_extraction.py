@@ -53,6 +53,7 @@ def extract_all_data(scanner):
 def _extract_forms(scanner, soup, base_url):
     """Extract all forms with complete details"""
     forms = soup.find_all('form')
+    form_data_list = []
     
     for form in forms:
         action = form.get('action', '')
@@ -72,6 +73,14 @@ def _extract_forms(scanner, soup, base_url):
             }
             inputs.append(input_data)
         
+        form_info = {
+            'action': form_url,
+            'method': method,
+            'inputs': inputs,
+            'input_count': len(inputs)
+        }
+        form_data_list.append(form_info)
+        
         # Check for insecure form attributes
         if method == 'GET' and any(i['type'] in ['password', 'email'] for i in inputs):
             scanner.add_finding(
@@ -80,7 +89,8 @@ def _extract_forms(scanner, soup, base_url):
                 title='Sensitive data in GET form',
                 description=f'Form submits sensitive data via GET method to {form_url}',
                 url=scanner.target_url,
-                remediation='Use POST method for forms containing sensitive data'
+                remediation='Use POST method for forms containing sensitive data',
+                evidence={'form': form_info}
             )
         
         # Check for autocomplete on sensitive fields
@@ -92,26 +102,41 @@ def _extract_forms(scanner, soup, base_url):
                 title='Password autocomplete enabled',
                 description=f'Password field allows autocomplete at {form_url}',
                 url=scanner.target_url,
-                remediation='Add autocomplete="off" to password inputs'
+                remediation='Add autocomplete="off" to password inputs',
+                evidence={'form': form_info, 'vulnerable_inputs': password_inputs}
             )
-        
-        # Log form data
+    
+    # Log all forms found
+    if form_data_list:
         scanner.add_finding(
             severity='INFO',
             category='Data Extraction',
-            title='Form discovered',
-            description=f'Form with {len(inputs)} fields found: {method} {form_url}',
+            title=f'Forms discovered: {len(form_data_list)} total',
+            description=f'Extracted complete details for {len(form_data_list)} forms including all input fields',
             url=scanner.target_url,
-            remediation=''
+            remediation='Review all forms for proper security controls',
+            evidence={
+                'type': 'forms',
+                'count': len(form_data_list),
+                'forms': form_data_list
+            }
         )
 
 def _extract_input_fields(scanner, soup):
     """Extract all input fields including hidden ones"""
     hidden_inputs = soup.find_all('input', {'type': 'hidden'})
+    hidden_fields = []
+    sensitive_fields = []
     
     for hidden in hidden_inputs:
         name = hidden.get('name', '')
         value = hidden.get('value', '')
+        
+        hidden_fields.append({
+            'name': name,
+            'value': value,
+            'length': len(value) if value else 0
+        })
         
         # Check for sensitive data in hidden fields
         sensitive_patterns = {
@@ -125,39 +150,79 @@ def _extract_input_fields(scanner, soup):
         
         for pattern, data_type in sensitive_patterns.items():
             if re.search(pattern, f"{name} {value}", re.IGNORECASE) and value:
-                scanner.add_finding(
-                    severity='HIGH',
-                    category='Data Extraction',
-                    title=f'Sensitive data in hidden field: {data_type}',
-                    description=f'Hidden input "{name}" contains potential {data_type}: {value[:50]}...',
-                    url=scanner.target_url,
-                    remediation='Never store sensitive data in hidden fields. Use server-side session storage.'
-                )
+                sensitive_fields.append({
+                    'name': name,
+                    'value': value,
+                    'type': data_type
+                })
+    
+    # Report all hidden fields
+    if hidden_fields:
+        scanner.add_finding(
+            severity='INFO',
+            category='Data Extraction',
+            title=f'Hidden input fields discovered',
+            description=f'Found {len(hidden_fields)} hidden input field(s) in forms',
+            url=scanner.target_url,
+            remediation='Review hidden fields for sensitive data exposure',
+            evidence={
+                'type': 'hidden_inputs',
+                'count': len(hidden_fields),
+                'fields': hidden_fields
+            }
+        )
+    
+    # Report sensitive hidden fields separately
+    if sensitive_fields:
+        scanner.add_finding(
+            severity='HIGH',
+            category='Data Extraction',
+            title=f'Sensitive data in hidden fields',
+            description=f'Found {len(sensitive_fields)} hidden input(s) containing sensitive data',
+            url=scanner.target_url,
+            remediation='Never store sensitive data in hidden fields. Use server-side session storage.',
+            evidence={
+                'type': 'sensitive_hidden_inputs',
+                'count': len(sensitive_fields),
+                'fields': sensitive_fields
+            }
+        )
 
 def _extract_metadata(scanner, soup):
     """Extract all metadata from page"""
     meta_tags = soup.find_all('meta')
+    metadata_list = []
     
     for meta in meta_tags:
         name = meta.get('name', '') or meta.get('property', '')
         content = meta.get('content', '')
         
         if content and len(content) > 10:
-            # Check for interesting metadata
-            if any(keyword in name.lower() for keyword in ['author', 'generator', 'application-name', 'framework']):
-                scanner.add_finding(
-                    severity='INFO',
-                    category='Data Extraction',
-                    title=f'Metadata discovered: {name}',
-                    description=f'{name}: {content}',
-                    url=scanner.target_url,
-                    remediation=''
-                )
+            metadata_list.append({
+                'name': name,
+                'content': content
+            })
+    
+    if metadata_list:
+        scanner.add_finding(
+            severity='INFO',
+            category='Data Extraction',
+            title=f'Metadata extracted',
+            description=f'Discovered {len(metadata_list)} metadata tag(s) with content',
+            url=scanner.target_url,
+            remediation='Review metadata for sensitive information disclosure',
+            evidence={
+                'type': 'metadata',
+                'count': len(metadata_list),
+                'tags': metadata_list
+            }
+        )
 
 def _extract_endpoints(scanner, soup, base_url):
-    """Extract all links and endpoints"""
+    """Extract all links and resources from page"""
     links = soup.find_all(['a', 'link', 'script', 'img', 'iframe'])
     endpoints = set()
+    api_endpoints = []
     
     for link in links:
         href = link.get('href') or link.get('src')
@@ -171,15 +236,40 @@ def _extract_endpoints(scanner, soup, base_url):
     for endpoint in endpoints:
         for pattern in api_patterns:
             if pattern in endpoint.lower():
-                scanner.add_finding(
-                    severity='INFO',
-                    category='Data Extraction',
-                    title='API/Admin endpoint discovered',
-                    description=f'Potential sensitive endpoint: {endpoint}',
-                    url=scanner.target_url,
-                    remediation='Ensure sensitive endpoints require authentication'
-                )
+                api_endpoints.append(endpoint)
                 break
+    
+    # Report all discovered links and resources
+    if endpoints:
+        scanner.add_finding(
+            severity='INFO',
+            category='Data Extraction',
+            title=f'Links and resources discovered',
+            description=f'Found {len(endpoints)} unique links, scripts, and resources on page',
+            url=scanner.target_url,
+            remediation='Review all linked resources for security implications',
+            evidence={
+                'type': 'discovered_links',
+                'count': len(endpoints),
+                'endpoints': list(endpoints)[:100]  # Limit to 100 to avoid overwhelming
+            }
+        )
+    
+    # Report sensitive API/admin endpoints separately
+    if api_endpoints:
+        scanner.add_finding(
+            severity='MEDIUM',
+            category='Data Extraction',
+            title=f'API/Admin endpoints discovered',
+            description=f'Found {len(api_endpoints)} potential sensitive endpoint(s)',
+            url=scanner.target_url,
+            remediation='Ensure sensitive endpoints require authentication and authorization',
+            evidence={
+                'type': 'sensitive_endpoints',
+                'count': len(api_endpoints),
+                'endpoints': api_endpoints
+            }
+        )
 
 def _extract_contact_info(scanner, text):
     """Extract email addresses and phone numbers"""
@@ -191,45 +281,66 @@ def _extract_contact_info(scanner, text):
             severity='INFO',
             category='Data Extraction',
             title='Email addresses found',
-            description=f'Discovered {len(emails)} email addresses: {", ".join(list(emails)[:5])}',
+            description=f'Discovered {len(emails)} email addresses in page source',
             url=scanner.target_url,
-            remediation=''
+            remediation='Consider using contact forms instead of exposing email addresses',
+            evidence={
+                'type': 'emails',
+                'count': len(emails),
+                'items': list(emails)
+            }
         )
     
     # Phone numbers (basic patterns)
     phones = set(re.findall(r'\b(?:\+?1[-.]?)?\(?([0-9]{3})\)?[-.]?([0-9]{3})[-.]?([0-9]{4})\b', text))
     
     if phones:
+        phone_numbers = [f"({p[0]}) {p[1]}-{p[2]}" for p in phones]
         scanner.add_finding(
             severity='INFO',
             category='Data Extraction',
             title='Phone numbers found',
-            description=f'Discovered {len(phones)} phone numbers',
+            description=f'Discovered {len(phones)} phone numbers in page source',
             url=scanner.target_url,
-            remediation=''
+            remediation='Consider using callback forms to protect phone numbers from scraping',
+            evidence={
+                'type': 'phones',
+                'count': len(phones),
+                'items': phone_numbers
+            }
         )
 
 def _extract_comment_data(scanner, soup):
     """Extract data from HTML comments"""
     comments = soup.find_all(string=lambda text: isinstance(text, str) and '<!--' in text)
+    sensitive_comments = []
     
     for comment in comments:
         comment_text = str(comment).strip()
         if len(comment_text) > 20:
             # Check for credentials in comments
             if any(keyword in comment_text.lower() for keyword in ['password', 'key', 'secret', 'token', 'credential']):
-                scanner.add_finding(
-                    severity='HIGH',
-                    category='Data Extraction',
-                    title='Sensitive data in HTML comments',
-                    description=f'Comment contains sensitive keywords: {comment_text[:100]}...',
-                    url=scanner.target_url,
-                    remediation='Remove sensitive information from HTML comments'
-                )
+                sensitive_comments.append(comment_text)
+    
+    if sensitive_comments:
+        scanner.add_finding(
+            severity='HIGH',
+            category='Data Extraction',
+            title='Sensitive data in HTML comments',
+            description=f'Found {len(sensitive_comments)} HTML comments containing sensitive keywords',
+            url=scanner.target_url,
+            remediation='Remove sensitive information from HTML comments before deployment',
+            evidence={
+                'type': 'sensitive_comments',
+                'count': len(sensitive_comments),
+                'items': [c[:200] for c in sensitive_comments]  # Truncate long comments
+            }
+        )
 
 def _extract_js_data(scanner, soup, base_url):
     """Extract JavaScript variables and configuration objects"""
     scripts = soup.find_all('script')
+    js_credentials = []
     
     for script in scripts:
         if script.string:
@@ -243,14 +354,26 @@ def _extract_js_data(scanner, soup, base_url):
                 matches = re.findall(pattern, script.string, re.IGNORECASE)
                 for var_name, var_value in matches:
                     if len(var_value) > 15:  # Ignore short values
-                        scanner.add_finding(
-                            severity='HIGH',
-                            category='Data Extraction',
-                            title='Hardcoded credentials in JavaScript',
-                            description=f'Variable "{var_name}" contains potential credential: {var_value[:30]}...',
-                            url=scanner.target_url,
-                            remediation='Never hardcode credentials in client-side code. Use server-side API calls.'
-                        )
+                        js_credentials.append({
+                            'variable': var_name,
+                            'value': var_value,
+                            'length': len(var_value)
+                        })
+    
+    if js_credentials:
+        scanner.add_finding(
+            severity='HIGH',
+            category='Data Extraction',
+            title='Hardcoded credentials in JavaScript',
+            description=f'Found {len(js_credentials)} hardcoded credentials/keys in JavaScript code',
+            url=scanner.target_url,
+            remediation='Never hardcode credentials in client-side code. Use server-side API calls and environment variables.',
+            evidence={
+                'type': 'javascript_credentials',
+                'count': len(js_credentials),
+                'credentials': js_credentials[:20]  # Show up to 20
+            }
+        )
 
 def _extract_credentials(scanner, text):
     """Extract exposed credentials and API keys"""
@@ -271,15 +394,20 @@ def _extract_credentials(scanner, text):
     for pattern, cred_type in credential_patterns.items():
         matches = re.findall(pattern, text)
         if matches:
-            for match in matches[:3]:  # Limit to first 3 to avoid spam
-                scanner.add_finding(
-                    severity='CRITICAL' if 'secret' in cred_type.lower() else 'HIGH',
-                    category='Data Extraction',
-                    title=f'Exposed {cred_type}',
-                    description=f'Found exposed credential: {match[:40]}...',
-                    url=scanner.target_url,
-                    remediation='Immediately revoke exposed credentials and use environment variables.'
-                )
+            scanner.add_finding(
+                severity='CRITICAL' if 'secret' in cred_type.lower() else 'HIGH',
+                category='Data Extraction',
+                title=f'Exposed {cred_type}',
+                description=f'Found {len(matches)} exposed {cred_type.lower()}(s) in page source',
+                url=scanner.target_url,
+                remediation='IMMEDIATELY revoke these credentials, rotate keys, and use environment variables or secrets management.',
+                evidence={
+                    'type': 'credentials',
+                    'credential_type': cred_type,
+                    'count': len(matches),
+                    'tokens': list(matches)[:10]  # Show up to 10 matches
+                }
+            )
 
 def _extract_api_endpoints(scanner, soup, text):
     """Extract API endpoints from JavaScript"""
@@ -297,12 +425,18 @@ def _extract_api_endpoints(scanner, soup, text):
         matches = re.findall(pattern, text, re.IGNORECASE)
         endpoints.update(matches)
     
-    for endpoint in endpoints:
+    if endpoints:
+        endpoint_list = list(endpoints)
         scanner.add_finding(
             severity='INFO',
             category='Data Extraction',
-            title='API endpoint discovered in JavaScript',
-            description=f'Found endpoint: {endpoint}',
+            title='API endpoints discovered in JavaScript',
+            description=f'Found {len(endpoints)} API endpoints exposed in client-side code',
             url=scanner.target_url,
-            remediation='Ensure all API endpoints implement proper authentication and rate limiting'
+            remediation='Ensure all API endpoints implement proper authentication, authorization, and rate limiting',
+            evidence={
+                'type': 'api_endpoints',
+                'count': len(endpoints),
+                'endpoints': endpoint_list
+            }
         )

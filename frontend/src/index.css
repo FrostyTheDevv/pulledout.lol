@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 0%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 0%;
+    --primary: 0 0% 0%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 0%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 0%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 0%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 5%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 5%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 0 0% 10%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 0 0% 80%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #333333;
+  border-radius: 0.5rem;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #555555;
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(to right, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%);
+  background-size: 1000px 100%;
+}
+
+/* Glass morphism */
+.glass {
+  background: rgba(0, 0, 0, 0.7);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Gradient text */
+.gradient-text {
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  background-image: linear-gradient(to right, rgb(255 255 255), rgb(200 200 200));
+}
+
+/* Security indicators */
+.severity-critical {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: rgb(248 113 113);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.severity-high {
+  background-color: rgba(249, 115, 22, 0.2);
+  color: rgb(251 146 60);
+  border-color: rgba(249, 115, 22, 0.5);
+}
+
+.severity-medium {
+  background-color: rgba(234, 179, 8, 0.2);
+  color: rgb(250 204 21);
+  border-color: rgba(234, 179, 8, 0.5);
+}
+
+.severity-low {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: rgb(96 165 250);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.severity-info {
+  background-color: rgba(107, 114, 128, 0.2);
+  color: rgb(156 163 175);
+  border-color: rgba(107, 114, 128, 0.5);
+}
+
+/* Progress bar with data attribute for dynamic width */
+.progress-bar {
+  transition: width 0.3s ease-in-out;
+}
+
+.progress-bar[data-progress="0"] { width: 0%; }
+.progress-bar[data-progress="10"] { width: 10%; }
+.progress-bar[data-progress="20"] { width: 20%; }
+.progress-bar[data-progress="30"] { width: 30%; }
+.progress-bar[data-progress="40"] { width: 40%; }
+.progress-bar[data-progress="50"] { width: 50%; }
+.progress-bar[data-progress="60"] { width: 60%; }
+.progress-bar[data-progress="70"] { width: 70%; }
+.progress-bar[data-progress="80"] { width: 80%; }
+.progress-bar[data-progress="90"] { width: 90%; }
+.progress-bar[data-progress="100"] { width: 100%; }

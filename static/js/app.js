@@ -465,8 +465,14 @@ function displayResults(results) {
     const categoryOrder = [
         'Transport Security',
         'Security Headers',
-        'Session / Cookies',
+        'Session Management',
+        'Authentication',
         'Cryptography / TLS',
+        'SQL Injection',
+        'XSS',
+        'Command Injection',
+        'File Upload Vulnerability',
+        'Sensitive Data Exposure',
         'Input / Forms',
         'Resource Security',
         'Client-side Exposure',
@@ -488,36 +494,173 @@ function displayResults(results) {
     
     categoryOrder.forEach(category => {
         const count = categorySummary?.[category] || 0;
-        const categoryBox = document.createElement('div');
-        categoryBox.className = 'category-box';
-        categoryBox.innerHTML = `
-            <h3>${escapeHtml(category)}</h3>
-            <div class="count">${count}</div>
-        `;
-        categoryGrid.appendChild(categoryBox);
+        if (count > 0) {  // Only show categories with findings
+            const categoryBox = document.createElement('div');
+            categoryBox.className = 'category-box';
+            categoryBox.innerHTML = `
+                <h3>${escapeHtml(category)}</h3>
+                <div class="count">${count}</div>
+            `;
+            categoryGrid.appendChild(categoryBox);
+        }
     });
     
-    // Findings Table
-    const tableBody = document.getElementById('findingsTableBody');
-    tableBody.innerHTML = '';
+    // Store findings globally for filtering
+    window.currentFindings = results.findings || [];
     
-    if (!results.findings || results.findings.length === 0) {
-        tableBody.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted); grid-column: 1 / -1;">No security issues found.</div>';
-    } else {
-        results.findings.forEach(finding => {
-            const row = document.createElement('div');
-            row.className = 'finding-row';
-            
-            row.innerHTML = `
-                <div class="severity ${finding.severity}">${finding.severity}</div>
-                <div class="category">${escapeHtml(finding.category)}</div>
-                <div class="description">${escapeHtml(finding.title)}</div>
-                <div class="url">${escapeHtml(finding.url)}</div>
-            `;
-            
-            tableBody.appendChild(row);
-        });
+    // Populate category filter dropdown
+    const categoryFilter = document.getElementById('categoryFilter');
+    const categories = ['ALL', ...new Set(window.currentFindings.map(f => f.category))];
+    categoryFilter.innerHTML = categories.map(cat => 
+        `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`
+    ).join('');
+    
+    // Display findings
+    displayFindingsCards(window.currentFindings);
+    
+    // Setup filters
+    setupFindingsFilters();
+}
+
+// ==================== FINDINGS DISPLAY & FILTERING ====================
+function displayFindingsCards(findings) {
+    const container = document.getElementById('findingsContainer');
+    
+    if (!findings || findings.length === 0) {
+        container.innerHTML = '<div class="empty-findings">No findings match your filters.</div>';
+        return;
     }
+    
+    container.innerHTML = findings.map((finding, index) => {
+        // Convert markdown-style code blocks and formatting
+        const description = formatDescription(finding.description || '');
+        const remediation = formatDescription(finding.remediation || 'No remediation provided');
+        
+        return `
+            <div class="finding-card severity-${finding.severity.toLowerCase()}" data-severity="${finding.severity}" data-category="${escapeHtml(finding.category)}">
+                <div class="finding-card-header" onclick="toggleFindingDetails(${index})">
+                    <div class="finding-header-left">
+                        <span class="severity-badge ${finding.severity.toLowerCase()}">${finding.severity}</span>
+                        <span class="category-badge">${escapeHtml(finding.category)}</span>
+                        <h3 class="finding-title">${escapeHtml(finding.title)}</h3>
+                    </div>
+                    <div class="finding-header-right">
+                        <span class="expand-icon" id="expand-${index}">▼</span>
+                    </div>
+                </div>
+                
+                <div class="finding-card-preview">
+                    <div class="finding-url"><strong>URL:</strong> ${escapeHtml(finding.url)}</div>
+                </div>
+                
+                <div class="finding-card-body" id="details-${index}" style="display: none;">
+                    <div class="finding-section">
+                        <h4>📋 Description</h4>
+                        <div class="finding-content">${description}</div>
+                    </div>
+                    
+                    ${finding.impact ? `
+                    <div class="finding-section">
+                        <h4>💥 Impact</h4>
+                        <div class="finding-content">${formatDescription(finding.impact)}</div>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="finding-section">
+                        <h4>🔧 Remediation</h4>
+                        <div class="finding-content remediation-content">${remediation}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function formatDescription(text) {
+    if (!text) return '';
+    
+    // Escape HTML first
+    let formatted = escapeHtml(text);
+    
+    // Convert **bold** to <strong>
+    formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    
+    // Convert ```code blocks``` to <pre><code>
+    formatted = formatted.replace(/```(\w+)?\n([\s\S]+?)```/g, (match, lang, code) => {
+        return `<pre><code class="code-block">${code.trim()}</code></pre>`;
+    });
+    
+    // Convert inline `code` to <code>
+    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Convert newlines to <br>
+    formatted = formatted.replace(/\n/g, '<br>');
+    
+    // Convert URLs to links (only if not already in a tag)
+    formatted = formatted.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
+    
+    return formatted;
+}
+
+function toggleFindingDetails(index) {
+    const details = document.getElementById(`details-${index}`);
+    const icon = document.getElementById(`expand-${index}`);
+    
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        icon.textContent = '▲';
+    } else {
+        details.style.display = 'none';
+        icon.textContent = '▼';
+    }
+}
+
+function setupFindingsFilters() {
+    // Severity filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Update active state
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            applyFilters();
+        });
+    });
+    
+    // Category filter dropdown
+    document.getElementById('categoryFilter').addEventListener('change', applyFilters);
+    
+    // Search input
+    document.getElementById('searchFindings').addEventListener('input', applyFilters);
+}
+
+function applyFilters() {
+    const severityFilter = document.querySelector('.filter-btn.active').dataset.severity;
+    const categoryFilter = document.getElementById('categoryFilter').value;
+    const searchTerm = document.getElementById('searchFindings').value.toLowerCase();
+    
+    let filtered = window.currentFindings;
+    
+    // Filter by severity
+    if (severityFilter !== 'ALL') {
+        filtered = filtered.filter(f => f.severity === severityFilter);
+    }
+    
+    // Filter by category
+    if (categoryFilter !== 'ALL') {
+        filtered = filtered.filter(f => f.category === categoryFilter);
+    }
+    
+    // Filter by search term
+    if (searchTerm) {
+        filtered = filtered.filter(f => 
+            f.title.toLowerCase().includes(searchTerm) ||
+            (f.description && f.description.toLowerCase().includes(searchTerm)) ||
+            f.url.toLowerCase().includes(searchTerm)
+        );
+    }
+    
+    displayFindingsCards(filtered);
 }
 
 // ==================== RECENT SCANS ====================

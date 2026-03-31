@@ -1,12 +1,15 @@
 # Use Python 3.13 slim image
 FROM python:3.13-slim
 
-# Install system dependencies for Chrome/Chromium
+# Install system dependencies for Chrome/Chromium and Node.js
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     chromium \
     chromium-driver \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -15,6 +18,15 @@ WORKDIR /app
 # Create volume mount point for database persistence
 RUN mkdir -p /data && chmod 777 /data
 
+# Copy package files for frontend
+COPY frontend/package*.json ./frontend/
+
+# Install frontend dependencies
+RUN cd frontend && npm ci --legacy-peer-deps
+
+# Copy frontend source and build configuration
+COPY frontend ./frontend
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 
@@ -22,8 +34,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code (excluding node_modules and dist via .dockerignore)
 COPY . .
+
+# Build frontend (outputs to static/dist as configured in vite.config.ts)
+RUN cd frontend && npm run build
+
+# Verify build output
+RUN ls -la static/dist || echo "Build output directory not found!"
 
 # Expose port (Railway will set PORT env var)
 EXPOSE 8080

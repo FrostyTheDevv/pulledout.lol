@@ -26,6 +26,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='pulledout.png') }}?v=2">
     <title>pulledout</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ v }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/findings-enhanced.css') }}?v={{ v }}">
 </head>
 <body>
     <div class="container">
@@ -136,15 +137,38 @@
                         <div id="categoryGrid" class="category-grid"></div>
                     </div>
 
-                    <!-- Findings Table -->
-                    <div class="findings-table">
-                        <div class="findings-table-header">
-                            <div>SEVERITY</div>
-                            <div>CATEGORY</div>
-                            <div>DESCRIPTION</div>
-                            <div>URL</div>
+                    <!-- Filters and Search -->
+                    <div class="findings-filters">
+                        <div class="filter-group">
+                            <label>Filter by Severity:</label>
+                            <div class="filter-buttons">
+                                <button class="filter-btn active" data-severity="ALL">All</button>
+                                <button class="filter-btn" data-severity="CRITICAL">Critical</button>
+                                <button class="filter-btn" data-severity="HIGH">High</button>
+                                <button class="filter-btn" data-severity="MEDIUM">Medium</button>
+                                <button class="filter-btn" data-severity="LOW">Low</button>
+                                <button class="filter-btn" data-severity="INFO">Info</button>
+                            </div>
                         </div>
-                        <div id="findingsTableBody" class="findings-table-body"></div>
+                        <div class="filter-group">
+                            <label for="categoryFilter">Filter by Category:</label>
+                            <select id="categoryFilter" class="category-select" title="Filter findings by category">
+                                <option value="ALL">All Categories</option>
+                            </select>
+                        </div>
+                        <div class="filter-group search-group">
+                            <input 
+                                type="text" 
+                                id="searchFindings" 
+                                placeholder="Search findings..." 
+                                class="search-input"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Findings Cards (Expandable Detailed View) -->
+                    <div id="findingsContainer" class="findings-container">
+                        <!-- Findings will be populated here -->
                     </div>
 
                     <!-- Actions -->

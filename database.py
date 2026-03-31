@@ -120,6 +120,7 @@ class Scan(db.Model):
     scan_id = db.Column(db.String(36), unique=True, nullable=False, index=True)
     target_url = db.Column(db.String(500), nullable=False)
     scan_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    scan_type = db.Column(db.String(100), default='Comprehensive Scan')  # e.g., 'Comprehensive Scan', 'Database Intrusion', etc.
     pages_scanned = db.Column(db.Integer, default=0)
     risk_score = db.Column(db.Integer, default=0)
     risk_level = db.Column(db.String(20))
@@ -133,7 +134,8 @@ class Scan(db.Model):
     def __init__(self, user_id: int, scan_id: str, target_url: str, 
                  pages_scanned: int = 0, risk_score: int = 0, risk_level: Optional[str] = None,
                  findings_count: int = 0, high_count: int = 0, medium_count: int = 0,
-                 low_count: int = 0, info_count: int = 0, scan_results: Optional[str] = None, **kwargs):
+                 low_count: int = 0, info_count: int = 0, scan_results: Optional[str] = None, 
+                 scan_type: str = 'Comprehensive Scan', **kwargs):
         """Initialize Scan model"""
         super(Scan, self).__init__(  # type: ignore
             user_id=user_id,
@@ -148,6 +150,7 @@ class Scan(db.Model):
             low_count=low_count,
             info_count=info_count,
             scan_results=scan_results,
+            scan_type=scan_type,
             **kwargs
         )
 
@@ -376,11 +379,13 @@ class ScanManager:
         try:
             # Extract summary data
             findings_summary = scan_data.get('findings_summary', {})
+            scan_type = scan_data.get('tool', 'Comprehensive Scan')  # Get tool name or default to comprehensive
             
             scan = Scan(
                 user_id=user_id,
                 scan_id=str(scan_data.get('scan_id', '')),
                 target_url=str(scan_data.get('target_url', '')),
+                scan_type=scan_type,
                 pages_scanned=scan_data.get('pages_scanned', 0),
                 risk_score=scan_data.get('risk_score', 0),
                 risk_level=scan_data.get('risk_level', 'Unknown'),
@@ -414,6 +419,7 @@ class ScanManager:
                 'scan_id': scan.scan_id,
                 'target_url': scan.target_url,
                 'scan_date': scan.scan_date.isoformat(),
+                'scan_type': scan.scan_type,
                 'pages_scanned': scan.pages_scanned,
                 'risk_score': scan.risk_score,
                 'risk_level': scan.risk_level,
@@ -441,3 +447,21 @@ class ScanManager:
         except Exception as e:
             print(f"Get scan details error: {e}")
             return None
+    
+    @staticmethod
+    def delete_scan(scan_id: str, user_id: int) -> bool:
+        """Delete a scan from user's history"""
+        try:
+            scan = Scan.query.filter_by(scan_id=scan_id, user_id=user_id).first()
+            
+            if not scan:
+                return False
+            
+            db.session.delete(scan)
+            db.session.commit()
+            return True
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"Delete scan error: {e}")
+            return False
