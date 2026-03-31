@@ -25,7 +25,14 @@ COPY frontend/package*.json ./frontend/
 RUN cd frontend && npm ci --legacy-peer-deps
 
 # Copy frontend source and build configuration
-COPY frontend ./frontend
+COPY frontend/src ./frontend/src
+COPY frontend/public ./frontend/public
+COPY frontend/index.html ./frontend/index.html
+COPY frontend/vite.config.ts ./frontend/vite.config.ts
+COPY frontend/tsconfig.json ./frontend/tsconfig.json
+COPY frontend/tailwind.config.js ./frontend/tailwind.config.js
+COPY frontend/postcss.config.js ./frontend/postcss.config.js
+COPY frontend/.eslintrc.json ./frontend/.eslintrc.json
 
 # Copy requirements first for better caching
 COPY requirements.txt .
