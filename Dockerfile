@@ -38,7 +38,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Build frontend (outputs to static/dist as configured in vite.config.ts)
-RUN cd frontend && npm run build
+# Set NODE_OPTIONS to increase memory limit for build
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+RUN cd frontend && npm run build 2>&1 || (echo "Build failed!" && cat /tmp/build.log && exit 1)
 
 # Verify build output
 RUN ls -la static/dist || echo "Build output directory not found!"
